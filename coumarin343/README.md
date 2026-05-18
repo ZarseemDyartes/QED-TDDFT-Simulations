@@ -1,9 +1,9 @@
 # [Coumarin 343](https://www.sigmaaldrich.com/US/en/product/aldrich/393029): 
 # Preliminary Tests 
-1. **Base**: Testing single-point KS-DFT calculations with a B3LYP/cc-pVDZ optimized geometry for Coumarin 343. B3LYP/6-31+G** single-point calculations run.
+1. **Base**: B3LYP/cc-pVDZ optimized geometry, B3LYP/6-31+G** single-point KS-DFT + TDA(TDDFT) without solvent effects. 
 2. **Solvents (TDA)**: B3LYP/cc-pVDZ optimized geometry, B3LYP/6-31+G** single-point KS-DFT + TDA(TDDFT) with ddCOSMO to simulate solvent effects from PMMA and water.
 # Basic QED-TDDFT Tests
-For all these tests, assume B3LYP/cc-pVDZ optimized geometry, B3LYP/6-31+G** single-point KS-DFT and TDA(TDDFT) for preliminary calculations, and TDA-JC for QED-TDDFT calculations. 
+For all these tests, assume B3LYP/cc-pVDZ optimized geometry, B3LYP/6-31+G** single-point KS-DFT (density fitting with aug-cc-pVDZ) and TDA(TDDFT) for preliminary calculations, and TDA-JC for QED-TDDFT calculations. 
 
 Standard cavity factors: 
 - Cavity Strength - 0.01 a.u.
