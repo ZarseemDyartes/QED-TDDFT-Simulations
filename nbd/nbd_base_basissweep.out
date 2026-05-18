@@ -1,0 +1,1140 @@
+
+================================================================================
+RUNNING BASIS: 6-31Gstar (6-31G*) | XC=b3lyp
+================================================================================
+#INFO: **** input file is /global/scratch/users/vaibhavvaiyakarnam/bdp_tddft/nbd_variants_bundle_plus_grid_basis/nbd_base_basis_sweep_b3lyp.py ****
+import csv
+import time
+import traceback
+
+import numpy
+from pyscf import gto, scf, tdscf
+
+# ============================================================
+# NBD-Amine base TD-DFT/TDA basis-set sweep
+# Functional: B3LYP
+# Response: normal PySCF TDA, not QED-TDDFT
+#
+# This is modeled after nbd_base.py, but loops over a compact
+# set of basis sets useful for checking excited-state sensitivity.
+# ============================================================
+
+EV_CONVERSION = 27.2114
+XC_FUNCTIONAL = "b3lyp"
+NROOTS = 10
+USE_DENSITY_FITTING = True
+USE_DDCOSMO = False  # keep this False to match the original nbd_base.py vacuum-style calculation
+SOLVENT_EPSILON = 3.0
+
+BASIS_SETS = [
+    ("6-31Gstar", "6-31G*"),
+    ("6-31plusGstarstar", "6-31+G**"),
+    ("def2-SVP", "def2-SVP"),
+    ("def2-TZVP", "def2-TZVP"),
+]
+
+ATOM_BLOCK = """
+C          -2.99554846        1.49184713        0.06984285
+C          -3.08915556        0.07862534        0.10145860
+C          -1.79815582        2.17809899        0.05826152
+C          -0.58983022        1.41049177        0.07966505
+C          -1.95291341       -0.72591027        0.12325400
+C          -0.69349421       -0.02259677        0.11170980
+N          -1.78904308        3.63135873        0.02520691
+N          -1.95150461       -2.07986412        0.15360125
+N           0.69806302        1.72629785        0.07703127
+N           0.51633005       -0.54566576        0.12780684
+O           1.35157792        0.52020757        0.10665545
+O          -2.87356420        4.21273120        0.00856359
+O          -0.69243507        4.18038272        0.01590057
+H          -3.90624208        2.09109650        0.05328804
+H          -4.07782349       -0.38361936        0.10860611
+H          -2.81569835       -2.60270478        0.16240987
+H          -1.07520465       -2.58348058        0.16777606
+"""
+
+
+def build_mol(basis_name):
+    mol = gto.Mole()
+    mol.verbose = 4
+    mol.atom = ATOM_BLOCK
+    mol.basis = basis_name
+    mol.build()
+    return mol
+
+
+def build_mean_field(mol):
+    mf = scf.RKS(mol)
+    if USE_DENSITY_FITTING:
+        mf = mf.density_fit()
+    mf.xc = XC_FUNCTIONAL
+    if USE_DDCOSMO:
+        mf = mf.ddCOSMO()
+        mf.with_solvent.eps = SOLVENT_EPSILON
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError("SCF did not converge")
+    return mf
+
+
+def run_tda(mf):
+    td = tdscf.TDA(mf)
+    td.nroots = NROOTS
+    td.kernel()
+    return td
+
+
+def run_basis_sweep():
+    csv_name = "nbd_base_basis_sweep_b3lyp.csv"
+    with open(csv_name, "w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            "basis_label", "basis", "functional", "use_ddcosmo", "epsilon",
+            "state", "energy_ev", "tdm_x", "tdm_y", "tdm_z", "tdm_norm",
+            "status", "elapsed_seconds"
+        ])
+
+        for basis_label, basis_name in BASIS_SETS:
+            start = time.time()
+            print("\n" + "=" * 80)
+            print(f"RUNNING BASIS: {basis_label} ({basis_name}) | XC={XC_FUNCTIONAL}")
+            print("=" * 80)
+            try:
+                mol = build_mol(basis_name)
+                mf = build_mean_field(mol)
+                td = run_tda(mf)
+                tdms = td.transition_dipole()
+                elapsed = time.time() - start
+
+                print("\n" + "-" * 72)
+                print(f"{'State':<8} {'Energy (eV)':<14} {'X':<12} {'Y':<12} {'Z':<12} {'|TDM|':<12}")
+                print("-" * 72)
+                for i in range(min(NROOTS, len(td.e))):
+                    tx, ty, tz = tdms[i]
+                    tdm_norm = float(numpy.linalg.norm(tdms[i]))
+                    energy_ev = float(td.e[i] * EV_CONVERSION)
+                    print(f"{i+1:<8} {energy_ev:<14.6f} {tx:<12.6f} {ty:<12.6f} {tz:<12.6f} {tdm_norm:<12.6f}")
+                    writer.writerow([
+                        basis_label, basis_name, XC_FUNCTIONAL, USE_DDCOSMO, SOLVENT_EPSILON,
+                        i + 1, f"{energy_ev:.10f}", f"{tx:.10f}", f"{ty:.10f}", f"{tz:.10f}",
+                        f"{tdm_norm:.10f}", "ok", f"{elapsed:.2f}"
+                    ])
+                handle.flush()
+            except Exception as exc:
+                elapsed = time.time() - start
+                print("FAILED:", repr(exc))
+                traceback.print_exc()
+                writer.writerow([
+                    basis_label, basis_name, XC_FUNCTIONAL, USE_DDCOSMO, SOLVENT_EPSILON,
+                    "", "", "", "", "", "", f"failed: {repr(exc)}", f"{elapsed:.2f}"
+                ])
+                handle.flush()
+
+    print(f"\nDone. Wrote {csv_name}")
+
+
+if __name__ == "__main__":
+    run_basis_sweep()
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='n0070.mhg0', release='4.18.0-553.58.1.el8_10.x86_64', version='#1 SMP Thu Jun 26 15:50:39 UTC 2025', machine='x86_64')  Threads 8
+Python 3.10.20 (main, Mar 11 2026, 17:46:40) [GCC 14.3.0]
+numpy 2.2.6  scipy 1.15.3  h5py 3.16.0
+Date: Sun May 10 00:38:19 2026
+PySCF version 2.13.0
+PySCF path  /global/home/users/vaibhavvaiyakarnam/.local/lib/python3.10/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 17
+[INPUT] num. electrons = 92
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 C     -2.995548460000   1.491847130000   0.069842850000 AA   -5.660766182263   2.819182495418   0.131983858259 Bohr   0.0
+[INPUT]  2 C     -3.089155560000   0.078625340000   0.101458600000 AA   -5.837657964577   0.148580359051   0.191728966982 Bohr   0.0
+[INPUT]  3 C     -1.798155820000   2.178098990000   0.058261520000 AA   -3.398022029093   4.116010563292   0.110098316401 Bohr   0.0
+[INPUT]  4 C     -0.589830220000   1.410491770000   0.079665050000 AA   -1.114617575792   2.665443146253   0.150545126200 Bohr   0.0
+[INPUT]  5 C     -1.952913410000  -0.725910270000   0.123254000000 AA   -3.690471489890  -1.371771601309   0.232916303757 Bohr   0.0
+[INPUT]  6 C     -0.693494210000  -0.022596770000   0.111709800000 AA   -1.310514125872  -0.042701706600   0.211100927430 Bohr   0.0
+[INPUT]  7 N     -1.789043080000   3.631358730000   0.025206910000 AA   -3.380801446248   6.862273459748   0.047634156347 Bohr   0.0
+[INPUT]  8 N     -1.951504610000  -2.079864120000   0.153601250000 AA   -3.687809243726  -3.930373563110   0.290264294891 Bohr   0.0
+[INPUT]  9 N      0.698063020000   1.726297850000   0.077031270000 AA    1.319147925487   3.262230145925   0.145568003327 Bohr   0.0
+[INPUT] 10 N      0.516330050000  -0.545665760000   0.127806840000 AA    0.975722384383  -1.031158841953   0.241519924446 Bohr   0.0
+[INPUT] 11 O      1.351577920000   0.520207570000   0.106655450000 AA    2.554112104809   0.983049835226   0.201549590192 Bohr   0.0
+[INPUT] 12 O     -2.873564200000   4.212731200000   0.008563590000 AA   -5.430249339355   7.960908204410   0.016182839743 Bohr   0.0
+[INPUT] 13 O     -0.692435070000   4.180382720000   0.015900570000 AA   -1.308512641344   7.899778436664   0.030047722524 Bohr   0.0
+[INPUT] 14 H     -3.906242080000   2.091096500000   0.053288040000 AA   -7.381727707451   3.951599685037   0.100699801315 Bohr   0.0
+[INPUT] 15 H     -4.077823490000  -0.383619360000   0.108606110000 AA   -7.705969580418  -0.724935526481   0.205235803354 Bohr   0.0
+[INPUT] 16 H     -2.815698350000  -2.602704780000   0.162409870000 AA   -5.320898730890  -4.918399217296   0.306910174226 Bohr   0.0
+[INPUT] 17 H     -1.075204650000  -2.583480580000   0.167776060000 AA   -2.031842316359  -4.882070744332   0.317050803659 Bohr   0.0
+
+nuclear repulsion = 770.123852130282
+number of shells = 86
+number of NR pGTOs = 367
+number of NR cGTOs = 190
+basis = 6-31G*
+ecp = {}
+CPU time:         2.53
+
+
+******** <class 'pyscf.df.df_jk.DFRKS'> ********
+method = DFRKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-09
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = False
+chkfile to save SCF result = /tmp/tmpualjmaey
+max_memory 4000 MB (current use 97 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x147f72fd77f0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x147f72fd6200>
+small_rho_cutoff = 0
+Set gradient conv threshold to 3.16228e-05
+Initial guess from minao.
+tot grids = 221800
+******** <class 'pyscf.df.df.DF'> ********
+auxbasis = None
+max_memory = 4000
+Default auxbasis cc-pvdz-jkfit is used for C 6-31G*
+Default auxbasis cc-pvdz-jkfit is used for N 6-31G*
+Default auxbasis cc-pvdz-jkfit is used for O 6-31G*
+Default auxbasis cc-pvdz-jkfit is used for H 6-31G*
+init E= -678.246464250109
+  HOMO = -0.238805147329979  LUMO = -0.145205610649303
+cycle= 1 E= -675.207641157195  delta_E= 3.04  |g|= 1.27  |ddm|= 5.45
+  HOMO = -0.128444477803271  LUMO = -0.121513698619677
+cycle= 2 E= -674.437350123417  delta_E= 0.77  |g|= 2.43  |ddm|= 3.07
+  HOMO = -0.225104789817443  LUMO = -0.101382134473166
+cycle= 3 E= -675.504864088151  delta_E= -1.07  |g|= 0.234  |ddm|= 2.15
+  HOMO = -0.244520197495333  LUMO = -0.108567487156025
+cycle= 4 E= -675.507055406418  delta_E= -0.00219  |g|= 0.219  |ddm|= 0.428
+  HOMO = -0.241076377756922  LUMO = -0.109488219144113
+cycle= 5 E= -675.517131243528  delta_E= -0.0101  |g|= 0.0705  |ddm|= 0.233
+  HOMO = -0.239200586965239  LUMO = -0.107847984613522
+cycle= 6 E= -675.518014783445  delta_E= -0.000884  |g|= 0.0306  |ddm|= 0.0808
+  HOMO = -0.238748940094468  LUMO = -0.106975794705133
+cycle= 7 E= -675.51820259494  delta_E= -0.000188  |g|= 0.00939  |ddm|= 0.0309
+  HOMO = -0.238772123925535  LUMO = -0.10685491635973
+cycle= 8 E= -675.518219300922  delta_E= -1.67e-05  |g|= 0.00283  |ddm|= 0.00959
+  HOMO = -0.238934797768983  LUMO = -0.10693086938946
+cycle= 9 E= -675.51822090911  delta_E= -1.61e-06  |g|= 0.00104  |ddm|= 0.00339
+  HOMO = -0.238922860812599  LUMO = -0.106953739069027
+cycle= 10 E= -675.518221151338  delta_E= -2.42e-07  |g|= 0.000429  |ddm|= 0.00152
+  HOMO = -0.238912372483978  LUMO = -0.106937960277321
+cycle= 11 E= -675.518221185765  delta_E= -3.44e-08  |g|= 0.000244  |ddm|= 0.000645
+  HOMO = -0.238910570760323  LUMO = -0.106929618393465
+cycle= 12 E= -675.518221197249  delta_E= -1.15e-08  |g|= 0.000108  |ddm|= 0.000328
+  HOMO = -0.238908708567632  LUMO = -0.106930549976187
+cycle= 13 E= -675.518221199446  delta_E= -2.2e-09  |g|= 4.45e-05  |ddm|= 0.000132
+  HOMO = -0.238910551732975  LUMO = -0.106931377718261
+cycle= 14 E= -675.518221199838  delta_E= -3.91e-10  |g|= 2.07e-05  |ddm|= 5.35e-05
+  HOMO = -0.238910093401873  LUMO = -0.106931725323801
+Extra cycle  E= -675.518221199291  delta_E= 5.46e-10  |g|= 5.5e-05  |ddm|= 6.37e-05
+converged SCF energy = -675.518221199291
+
+
+******** <class 'pyscf.tdscf.rks.TDA'> for <class 'pyscf.df.df_jk.DFRKS'> ********
+nstates = 10 singlet
+deg_eia_thresh = 1.000e-03
+wfnsym = None
+conv_tol = 1e-05
+eigh lindep = 1e-12
+eigh level_shift = 0
+eigh max_cycle = 100
+chkfile = /tmp/tmpualjmaey
+max_memory 4000 MB (current use 405 MB)
+
+
+Excitation energies (eV)
+[3.55654989 3.60883369 4.1012947  4.49933679 4.62778195 4.70368869
+ 5.02954128 5.04311062 5.18726098 5.62481944]
+
+------------------------------------------------------------------------
+State    Energy (eV)    X            Y            Z            |TDM|       
+------------------------------------------------------------------------
+1        3.556552       -0.094080    -1.656369    0.037068     1.659453    
+2        3.608836       -0.000159    -0.002665    -0.006125    0.006682    
+3        4.101297       -0.000126    0.000651     0.031747     0.031754    
+4        4.499339       0.074062     -1.531783    0.035008     1.533972    
+5        4.627784       -0.000110    0.000784     0.011044     0.011072    
+6        4.703691       0.034582     -0.174302    0.004138     0.177748    
+7        5.029544       -0.343589    -0.292191    0.005470     0.451064    
+8        5.043113       -0.000202    0.000734     0.036612     0.036620    
+9        5.187264       -0.000083    0.000733     0.026417     0.026428    
+10       5.624822       -0.124748    -0.353974    0.007530     0.375389    
+
+================================================================================
+RUNNING BASIS: 6-31plusGstarstar (6-31+G**) | XC=b3lyp
+================================================================================
+#INFO: **** input file is /global/scratch/users/vaibhavvaiyakarnam/bdp_tddft/nbd_variants_bundle_plus_grid_basis/nbd_base_basis_sweep_b3lyp.py ****
+import csv
+import time
+import traceback
+
+import numpy
+from pyscf import gto, scf, tdscf
+
+# ============================================================
+# NBD-Amine base TD-DFT/TDA basis-set sweep
+# Functional: B3LYP
+# Response: normal PySCF TDA, not QED-TDDFT
+#
+# This is modeled after nbd_base.py, but loops over a compact
+# set of basis sets useful for checking excited-state sensitivity.
+# ============================================================
+
+EV_CONVERSION = 27.2114
+XC_FUNCTIONAL = "b3lyp"
+NROOTS = 10
+USE_DENSITY_FITTING = True
+USE_DDCOSMO = False  # keep this False to match the original nbd_base.py vacuum-style calculation
+SOLVENT_EPSILON = 3.0
+
+BASIS_SETS = [
+    ("6-31Gstar", "6-31G*"),
+    ("6-31plusGstarstar", "6-31+G**"),
+    ("def2-SVP", "def2-SVP"),
+    ("def2-TZVP", "def2-TZVP"),
+]
+
+ATOM_BLOCK = """
+C          -2.99554846        1.49184713        0.06984285
+C          -3.08915556        0.07862534        0.10145860
+C          -1.79815582        2.17809899        0.05826152
+C          -0.58983022        1.41049177        0.07966505
+C          -1.95291341       -0.72591027        0.12325400
+C          -0.69349421       -0.02259677        0.11170980
+N          -1.78904308        3.63135873        0.02520691
+N          -1.95150461       -2.07986412        0.15360125
+N           0.69806302        1.72629785        0.07703127
+N           0.51633005       -0.54566576        0.12780684
+O           1.35157792        0.52020757        0.10665545
+O          -2.87356420        4.21273120        0.00856359
+O          -0.69243507        4.18038272        0.01590057
+H          -3.90624208        2.09109650        0.05328804
+H          -4.07782349       -0.38361936        0.10860611
+H          -2.81569835       -2.60270478        0.16240987
+H          -1.07520465       -2.58348058        0.16777606
+"""
+
+
+def build_mol(basis_name):
+    mol = gto.Mole()
+    mol.verbose = 4
+    mol.atom = ATOM_BLOCK
+    mol.basis = basis_name
+    mol.build()
+    return mol
+
+
+def build_mean_field(mol):
+    mf = scf.RKS(mol)
+    if USE_DENSITY_FITTING:
+        mf = mf.density_fit()
+    mf.xc = XC_FUNCTIONAL
+    if USE_DDCOSMO:
+        mf = mf.ddCOSMO()
+        mf.with_solvent.eps = SOLVENT_EPSILON
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError("SCF did not converge")
+    return mf
+
+
+def run_tda(mf):
+    td = tdscf.TDA(mf)
+    td.nroots = NROOTS
+    td.kernel()
+    return td
+
+
+def run_basis_sweep():
+    csv_name = "nbd_base_basis_sweep_b3lyp.csv"
+    with open(csv_name, "w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            "basis_label", "basis", "functional", "use_ddcosmo", "epsilon",
+            "state", "energy_ev", "tdm_x", "tdm_y", "tdm_z", "tdm_norm",
+            "status", "elapsed_seconds"
+        ])
+
+        for basis_label, basis_name in BASIS_SETS:
+            start = time.time()
+            print("\n" + "=" * 80)
+            print(f"RUNNING BASIS: {basis_label} ({basis_name}) | XC={XC_FUNCTIONAL}")
+            print("=" * 80)
+            try:
+                mol = build_mol(basis_name)
+                mf = build_mean_field(mol)
+                td = run_tda(mf)
+                tdms = td.transition_dipole()
+                elapsed = time.time() - start
+
+                print("\n" + "-" * 72)
+                print(f"{'State':<8} {'Energy (eV)':<14} {'X':<12} {'Y':<12} {'Z':<12} {'|TDM|':<12}")
+                print("-" * 72)
+                for i in range(min(NROOTS, len(td.e))):
+                    tx, ty, tz = tdms[i]
+                    tdm_norm = float(numpy.linalg.norm(tdms[i]))
+                    energy_ev = float(td.e[i] * EV_CONVERSION)
+                    print(f"{i+1:<8} {energy_ev:<14.6f} {tx:<12.6f} {ty:<12.6f} {tz:<12.6f} {tdm_norm:<12.6f}")
+                    writer.writerow([
+                        basis_label, basis_name, XC_FUNCTIONAL, USE_DDCOSMO, SOLVENT_EPSILON,
+                        i + 1, f"{energy_ev:.10f}", f"{tx:.10f}", f"{ty:.10f}", f"{tz:.10f}",
+                        f"{tdm_norm:.10f}", "ok", f"{elapsed:.2f}"
+                    ])
+                handle.flush()
+            except Exception as exc:
+                elapsed = time.time() - start
+                print("FAILED:", repr(exc))
+                traceback.print_exc()
+                writer.writerow([
+                    basis_label, basis_name, XC_FUNCTIONAL, USE_DDCOSMO, SOLVENT_EPSILON,
+                    "", "", "", "", "", "", f"failed: {repr(exc)}", f"{elapsed:.2f}"
+                ])
+                handle.flush()
+
+    print(f"\nDone. Wrote {csv_name}")
+
+
+if __name__ == "__main__":
+    run_basis_sweep()
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='n0070.mhg0', release='4.18.0-553.58.1.el8_10.x86_64', version='#1 SMP Thu Jun 26 15:50:39 UTC 2025', machine='x86_64')  Threads 8
+Python 3.10.20 (main, Mar 11 2026, 17:46:40) [GCC 14.3.0]
+numpy 2.2.6  scipy 1.15.3  h5py 3.16.0
+Date: Sun May 10 00:47:44 2026
+PySCF version 2.13.0
+PySCF path  /global/home/users/vaibhavvaiyakarnam/.local/lib/python3.10/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 17
+[INPUT] num. electrons = 92
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 C     -2.995548460000   1.491847130000   0.069842850000 AA   -5.660766182263   2.819182495418   0.131983858259 Bohr   0.0
+[INPUT]  2 C     -3.089155560000   0.078625340000   0.101458600000 AA   -5.837657964577   0.148580359051   0.191728966982 Bohr   0.0
+[INPUT]  3 C     -1.798155820000   2.178098990000   0.058261520000 AA   -3.398022029093   4.116010563292   0.110098316401 Bohr   0.0
+[INPUT]  4 C     -0.589830220000   1.410491770000   0.079665050000 AA   -1.114617575792   2.665443146253   0.150545126200 Bohr   0.0
+[INPUT]  5 C     -1.952913410000  -0.725910270000   0.123254000000 AA   -3.690471489890  -1.371771601309   0.232916303757 Bohr   0.0
+[INPUT]  6 C     -0.693494210000  -0.022596770000   0.111709800000 AA   -1.310514125872  -0.042701706600   0.211100927430 Bohr   0.0
+[INPUT]  7 N     -1.789043080000   3.631358730000   0.025206910000 AA   -3.380801446248   6.862273459748   0.047634156347 Bohr   0.0
+[INPUT]  8 N     -1.951504610000  -2.079864120000   0.153601250000 AA   -3.687809243726  -3.930373563110   0.290264294891 Bohr   0.0
+[INPUT]  9 N      0.698063020000   1.726297850000   0.077031270000 AA    1.319147925487   3.262230145925   0.145568003327 Bohr   0.0
+[INPUT] 10 N      0.516330050000  -0.545665760000   0.127806840000 AA    0.975722384383  -1.031158841953   0.241519924446 Bohr   0.0
+[INPUT] 11 O      1.351577920000   0.520207570000   0.106655450000 AA    2.554112104809   0.983049835226   0.201549590192 Bohr   0.0
+[INPUT] 12 O     -2.873564200000   4.212731200000   0.008563590000 AA   -5.430249339355   7.960908204410   0.016182839743 Bohr   0.0
+[INPUT] 13 O     -0.692435070000   4.180382720000   0.015900570000 AA   -1.308512641344   7.899778436664   0.030047722524 Bohr   0.0
+[INPUT] 14 H     -3.906242080000   2.091096500000   0.053288040000 AA   -7.381727707451   3.951599685037   0.100699801315 Bohr   0.0
+[INPUT] 15 H     -4.077823490000  -0.383619360000   0.108606110000 AA   -7.705969580418  -0.724935526481   0.205235803354 Bohr   0.0
+[INPUT] 16 H     -2.815698350000  -2.602704780000   0.162409870000 AA   -5.320898730890  -4.918399217296   0.306910174226 Bohr   0.0
+[INPUT] 17 H     -1.075204650000  -2.583480580000   0.167776060000 AA   -2.031842316359  -4.882070744332   0.317050803659 Bohr   0.0
+
+nuclear repulsion = 770.123852130282
+number of shells = 116
+number of NR pGTOs = 431
+number of NR cGTOs = 254
+basis = 6-31+G**
+ecp = {}
+CPU time:      4024.23
+
+
+******** <class 'pyscf.df.df_jk.DFRKS'> ********
+method = DFRKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-09
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = False
+chkfile to save SCF result = /tmp/tmp7231bhej
+max_memory 4000 MB (current use 470 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x147f72fd77f0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x147f72fd6200>
+small_rho_cutoff = 0
+Set gradient conv threshold to 3.16228e-05
+Initial guess from minao.
+tot grids = 221800
+******** <class 'pyscf.df.df.DF'> ********
+auxbasis = None
+max_memory = 4000
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for C 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for N 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for O 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for H 6-31+G**
+init E= -678.303099092138
+
+WARN: 2 small eigenvectors of overlap matrix removed because of linear dependency between AOs.
+
+
+  HOMO = -0.239205117255068  LUMO = -0.146499002877608
+cycle= 1 E= -675.269803320817  delta_E= 3.03  |g|= 1.21  |ddm|= 65.6
+  HOMO = -0.154315446737949  LUMO = -0.140755060924544
+cycle= 2 E= -674.537244630735  delta_E= 0.733  |g|= 2.36  |ddm|= 12.8
+  HOMO = -0.242338495144191  LUMO = -0.119767790217487
+cycle= 3 E= -675.547161741244  delta_E= -1.01  |g|= 0.206  |ddm|= 9.02
+  HOMO = -0.258720351132004  LUMO = -0.125361712752946
+cycle= 4 E= -675.546918633046  delta_E= 0.000243  |g|= 0.21  |ddm|=  1.4
+  HOMO = -0.254344401676464  LUMO = -0.125122665810041
+cycle= 5 E= -675.556285845992  delta_E= -0.00937  |g|= 0.0654  |ddm|= 0.633
+  HOMO = -0.252464710497804  LUMO = -0.12368233941684
+cycle= 6 E= -675.557069034623  delta_E= -0.000783  |g|= 0.027  |ddm|= 0.231
+  HOMO = -0.252179646311282  LUMO = -0.122990679047247
+cycle= 7 E= -675.557211541909  delta_E= -0.000143  |g|= 0.0096  |ddm|= 0.0817
+  HOMO = -0.252310178505855  LUMO = -0.122973052370835
+cycle= 8 E= -675.55722915506  delta_E= -1.76e-05  |g|= 0.00256  |ddm|= 0.0323
+  HOMO = -0.252470859632689  LUMO = -0.123065419208221
+cycle= 9 E= -675.557230416163  delta_E= -1.26e-06  |g|= 0.00108  |ddm|= 0.0206
+  HOMO = -0.25245227053808  LUMO = -0.123072446997601
+cycle= 10 E= -675.557230669577  delta_E= -2.53e-07  |g|= 0.000477  |ddm|= 0.00559
+  HOMO = -0.252433428325315  LUMO = -0.12305552670088
+cycle= 11 E= -675.557230714687  delta_E= -4.51e-08  |g|= 0.000246  |ddm|= 0.00192
+  HOMO = -0.252432122675427  LUMO = -0.123045942439384
+cycle= 12 E= -675.557230725629  delta_E= -1.09e-08  |g|= 0.000112  |ddm|= 0.000872
+  HOMO = -0.252431519347508  LUMO = -0.123048171118153
+cycle= 13 E= -675.557230728064  delta_E= -2.44e-09  |g|= 3.9e-05  |ddm|= 0.000396
+  HOMO = -0.252433278007548  LUMO = -0.12304919805794
+cycle= 14 E= -675.557230728354  delta_E= -2.91e-10  |g|= 1.98e-05  |ddm|= 0.000188
+  HOMO = -0.252432452757192  LUMO = -0.123049051778696
+Extra cycle  E= -675.557230727838  delta_E= 5.16e-10  |g|= 5.29e-05  |ddm|= 0.000183
+converged SCF energy = -675.557230727838
+
+
+******** <class 'pyscf.tdscf.rks.TDA'> for <class 'pyscf.df.df_jk.DFRKS'> ********
+nstates = 10 singlet
+deg_eia_thresh = 1.000e-03
+wfnsym = None
+conv_tol = 1e-05
+eigh lindep = 1e-12
+eigh level_shift = 0
+eigh max_cycle = 100
+chkfile = /tmp/tmp7231bhej
+max_memory 4000 MB (current use 775 MB)
+
+
+Excitation energies (eV)
+[3.46204807 3.59591646 4.11288765 4.35089168 4.63707494 4.70880069
+ 4.96344357 5.02974437 5.20917388 5.26269366]
+
+------------------------------------------------------------------------
+State    Energy (eV)    X            Y            Z            |TDM|       
+------------------------------------------------------------------------
+1        3.462050       0.060672     1.810513     -0.040662    1.811986    
+2        3.595918       -0.000079    -0.000941    0.003379     0.003508    
+3        4.112890       0.000212     -0.001326    -0.059667    0.059682    
+4        4.350894       0.072033     -1.511980    0.034563     1.514089    
+5        4.637077       0.000010     -0.000023    0.006716     0.006716    
+6        4.708803       -0.090434    0.033559     -0.001147    0.096467    
+7        4.963446       -0.367315    -0.286851    0.005290     0.466081    
+8        5.029747       -0.000065    0.000388     0.018259     0.018263    
+9        5.209177       -0.000079    0.000476     0.017336     0.017343    
+10       5.262696       -0.000310    0.001589     0.075290     0.075307    
+
+================================================================================
+RUNNING BASIS: def2-SVP (def2-SVP) | XC=b3lyp
+================================================================================
+#INFO: **** input file is /global/scratch/users/vaibhavvaiyakarnam/bdp_tddft/nbd_variants_bundle_plus_grid_basis/nbd_base_basis_sweep_b3lyp.py ****
+import csv
+import time
+import traceback
+
+import numpy
+from pyscf import gto, scf, tdscf
+
+# ============================================================
+# NBD-Amine base TD-DFT/TDA basis-set sweep
+# Functional: B3LYP
+# Response: normal PySCF TDA, not QED-TDDFT
+#
+# This is modeled after nbd_base.py, but loops over a compact
+# set of basis sets useful for checking excited-state sensitivity.
+# ============================================================
+
+EV_CONVERSION = 27.2114
+XC_FUNCTIONAL = "b3lyp"
+NROOTS = 10
+USE_DENSITY_FITTING = True
+USE_DDCOSMO = False  # keep this False to match the original nbd_base.py vacuum-style calculation
+SOLVENT_EPSILON = 3.0
+
+BASIS_SETS = [
+    ("6-31Gstar", "6-31G*"),
+    ("6-31plusGstarstar", "6-31+G**"),
+    ("def2-SVP", "def2-SVP"),
+    ("def2-TZVP", "def2-TZVP"),
+]
+
+ATOM_BLOCK = """
+C          -2.99554846        1.49184713        0.06984285
+C          -3.08915556        0.07862534        0.10145860
+C          -1.79815582        2.17809899        0.05826152
+C          -0.58983022        1.41049177        0.07966505
+C          -1.95291341       -0.72591027        0.12325400
+C          -0.69349421       -0.02259677        0.11170980
+N          -1.78904308        3.63135873        0.02520691
+N          -1.95150461       -2.07986412        0.15360125
+N           0.69806302        1.72629785        0.07703127
+N           0.51633005       -0.54566576        0.12780684
+O           1.35157792        0.52020757        0.10665545
+O          -2.87356420        4.21273120        0.00856359
+O          -0.69243507        4.18038272        0.01590057
+H          -3.90624208        2.09109650        0.05328804
+H          -4.07782349       -0.38361936        0.10860611
+H          -2.81569835       -2.60270478        0.16240987
+H          -1.07520465       -2.58348058        0.16777606
+"""
+
+
+def build_mol(basis_name):
+    mol = gto.Mole()
+    mol.verbose = 4
+    mol.atom = ATOM_BLOCK
+    mol.basis = basis_name
+    mol.build()
+    return mol
+
+
+def build_mean_field(mol):
+    mf = scf.RKS(mol)
+    if USE_DENSITY_FITTING:
+        mf = mf.density_fit()
+    mf.xc = XC_FUNCTIONAL
+    if USE_DDCOSMO:
+        mf = mf.ddCOSMO()
+        mf.with_solvent.eps = SOLVENT_EPSILON
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError("SCF did not converge")
+    return mf
+
+
+def run_tda(mf):
+    td = tdscf.TDA(mf)
+    td.nroots = NROOTS
+    td.kernel()
+    return td
+
+
+def run_basis_sweep():
+    csv_name = "nbd_base_basis_sweep_b3lyp.csv"
+    with open(csv_name, "w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            "basis_label", "basis", "functional", "use_ddcosmo", "epsilon",
+            "state", "energy_ev", "tdm_x", "tdm_y", "tdm_z", "tdm_norm",
+            "status", "elapsed_seconds"
+        ])
+
+        for basis_label, basis_name in BASIS_SETS:
+            start = time.time()
+            print("\n" + "=" * 80)
+            print(f"RUNNING BASIS: {basis_label} ({basis_name}) | XC={XC_FUNCTIONAL}")
+            print("=" * 80)
+            try:
+                mol = build_mol(basis_name)
+                mf = build_mean_field(mol)
+                td = run_tda(mf)
+                tdms = td.transition_dipole()
+                elapsed = time.time() - start
+
+                print("\n" + "-" * 72)
+                print(f"{'State':<8} {'Energy (eV)':<14} {'X':<12} {'Y':<12} {'Z':<12} {'|TDM|':<12}")
+                print("-" * 72)
+                for i in range(min(NROOTS, len(td.e))):
+                    tx, ty, tz = tdms[i]
+                    tdm_norm = float(numpy.linalg.norm(tdms[i]))
+                    energy_ev = float(td.e[i] * EV_CONVERSION)
+                    print(f"{i+1:<8} {energy_ev:<14.6f} {tx:<12.6f} {ty:<12.6f} {tz:<12.6f} {tdm_norm:<12.6f}")
+                    writer.writerow([
+                        basis_label, basis_name, XC_FUNCTIONAL, USE_DDCOSMO, SOLVENT_EPSILON,
+                        i + 1, f"{energy_ev:.10f}", f"{tx:.10f}", f"{ty:.10f}", f"{tz:.10f}",
+                        f"{tdm_norm:.10f}", "ok", f"{elapsed:.2f}"
+                    ])
+                handle.flush()
+            except Exception as exc:
+                elapsed = time.time() - start
+                print("FAILED:", repr(exc))
+                traceback.print_exc()
+                writer.writerow([
+                    basis_label, basis_name, XC_FUNCTIONAL, USE_DDCOSMO, SOLVENT_EPSILON,
+                    "", "", "", "", "", "", f"failed: {repr(exc)}", f"{elapsed:.2f}"
+                ])
+                handle.flush()
+
+    print(f"\nDone. Wrote {csv_name}")
+
+
+if __name__ == "__main__":
+    run_basis_sweep()
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='n0070.mhg0', release='4.18.0-553.58.1.el8_10.x86_64', version='#1 SMP Thu Jun 26 15:50:39 UTC 2025', machine='x86_64')  Threads 8
+Python 3.10.20 (main, Mar 11 2026, 17:46:40) [GCC 14.3.0]
+numpy 2.2.6  scipy 1.15.3  h5py 3.16.0
+Date: Sun May 10 01:04:51 2026
+PySCF version 2.13.0
+PySCF path  /global/home/users/vaibhavvaiyakarnam/.local/lib/python3.10/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 17
+[INPUT] num. electrons = 92
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 C     -2.995548460000   1.491847130000   0.069842850000 AA   -5.660766182263   2.819182495418   0.131983858259 Bohr   0.0
+[INPUT]  2 C     -3.089155560000   0.078625340000   0.101458600000 AA   -5.837657964577   0.148580359051   0.191728966982 Bohr   0.0
+[INPUT]  3 C     -1.798155820000   2.178098990000   0.058261520000 AA   -3.398022029093   4.116010563292   0.110098316401 Bohr   0.0
+[INPUT]  4 C     -0.589830220000   1.410491770000   0.079665050000 AA   -1.114617575792   2.665443146253   0.150545126200 Bohr   0.0
+[INPUT]  5 C     -1.952913410000  -0.725910270000   0.123254000000 AA   -3.690471489890  -1.371771601309   0.232916303757 Bohr   0.0
+[INPUT]  6 C     -0.693494210000  -0.022596770000   0.111709800000 AA   -1.310514125872  -0.042701706600   0.211100927430 Bohr   0.0
+[INPUT]  7 N     -1.789043080000   3.631358730000   0.025206910000 AA   -3.380801446248   6.862273459748   0.047634156347 Bohr   0.0
+[INPUT]  8 N     -1.951504610000  -2.079864120000   0.153601250000 AA   -3.687809243726  -3.930373563110   0.290264294891 Bohr   0.0
+[INPUT]  9 N      0.698063020000   1.726297850000   0.077031270000 AA    1.319147925487   3.262230145925   0.145568003327 Bohr   0.0
+[INPUT] 10 N      0.516330050000  -0.545665760000   0.127806840000 AA    0.975722384383  -1.031158841953   0.241519924446 Bohr   0.0
+[INPUT] 11 O      1.351577920000   0.520207570000   0.106655450000 AA    2.554112104809   0.983049835226   0.201549590192 Bohr   0.0
+[INPUT] 12 O     -2.873564200000   4.212731200000   0.008563590000 AA   -5.430249339355   7.960908204410   0.016182839743 Bohr   0.0
+[INPUT] 13 O     -0.692435070000   4.180382720000   0.015900570000 AA   -1.308512641344   7.899778436664   0.030047722524 Bohr   0.0
+[INPUT] 14 H     -3.906242080000   2.091096500000   0.053288040000 AA   -7.381727707451   3.951599685037   0.100699801315 Bohr   0.0
+[INPUT] 15 H     -4.077823490000  -0.383619360000   0.108606110000 AA   -7.705969580418  -0.724935526481   0.205235803354 Bohr   0.0
+[INPUT] 16 H     -2.815698350000  -2.602704780000   0.162409870000 AA   -5.320898730890  -4.918399217296   0.306910174226 Bohr   0.0
+[INPUT] 17 H     -1.075204650000  -2.583480580000   0.167776060000 AA   -2.031842316359  -4.882070744332   0.317050803659 Bohr   0.0
+
+nuclear repulsion = 770.123852130282
+number of shells = 90
+number of NR pGTOs = 340
+number of NR cGTOs = 202
+basis = def2-SVP
+ecp = {}
+CPU time:     11196.07
+
+
+******** <class 'pyscf.df.df_jk.DFRKS'> ********
+method = DFRKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-09
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = False
+chkfile to save SCF result = /tmp/tmp6bfmbc5n
+max_memory 4000 MB (current use 648 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x147f72fd77f0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x147f72fd6200>
+small_rho_cutoff = 0
+Set gradient conv threshold to 3.16228e-05
+Initial guess from minao.
+tot grids = 221800
+******** <class 'pyscf.df.df.DF'> ********
+auxbasis = None
+max_memory = 4000
+init E= -677.649593929803
+  HOMO = -0.243033795866314  LUMO = -0.149325225460992
+cycle= 1 E= -674.716960789554  delta_E= 2.93  |g|= 1.28  |ddm|=  6.3
+
+WARN: HOMO -0.131600698235741 == LUMO -0.131101814309153
+
+cycle= 2 E= -672.390464637311  delta_E= 2.33  |g|= 2.96  |ddm|= 3.92
+  HOMO = -0.236161250608321  LUMO = -0.156927554651639
+cycle= 3 E= -674.489225104126  delta_E= -2.1  |g|= 1.29  |ddm|= 3.73
+  HOMO = -0.235587346721873  LUMO = -0.116202196217662
+cycle= 4 E= -675.010885817269  delta_E= -0.522  |g|= 0.268  |ddm|=  1.5
+  HOMO = -0.23863583488119  LUMO = -0.120348646204696
+cycle= 5 E= -675.013768848653  delta_E= -0.00288  |g|= 0.259  |ddm|= 0.473
+  HOMO = -0.246694623609817  LUMO = -0.116949516817233
+cycle= 6 E= -675.030440418044  delta_E= -0.0167  |g|= 0.084  |ddm|= 0.314
+  HOMO = -0.245828236190853  LUMO = -0.112747524523508
+cycle= 7 E= -675.031788324431  delta_E= -0.00135  |g|= 0.0412  |ddm|= 0.113
+  HOMO = -0.245126765432185  LUMO = -0.113391631154871
+cycle= 8 E= -675.032079875185  delta_E= -0.000292  |g|= 0.0228  |ddm|= 0.0578
+  HOMO = -0.245547983044336  LUMO = -0.113749267866503
+cycle= 9 E= -675.032169514547  delta_E= -8.96e-05  |g|= 0.0109  |ddm|= 0.0283
+  HOMO = -0.245588717205611  LUMO = -0.113827063549811
+cycle= 10 E= -675.032191994959  delta_E= -2.25e-05  |g|= 0.0034  |ddm|= 0.0111
+  HOMO = -0.245448059313086  LUMO = -0.113727445388048
+cycle= 11 E= -675.032194426945  delta_E= -2.43e-06  |g|= 0.0014  |ddm|= 0.00433
+  HOMO = -0.245380367862013  LUMO = -0.11367660051113
+cycle= 12 E= -675.032194821501  delta_E= -3.95e-07  |g|= 0.000585  |ddm|= 0.0018
+  HOMO = -0.245362518438731  LUMO = -0.113672446960348
+cycle= 13 E= -675.032194865489  delta_E= -4.4e-08  |g|= 0.000391  |ddm|= 0.000974
+  HOMO = -0.245369060074058  LUMO = -0.113684118916287
+cycle= 14 E= -675.032194890907  delta_E= -2.54e-08  |g|= 0.000227  |ddm|= 0.000754
+  HOMO = -0.245370627182818  LUMO = -0.113677517195153
+cycle= 15 E= -675.032194903433  delta_E= -1.25e-08  |g|= 3.09e-05  |ddm|= 0.000284
+  HOMO = -0.245369950603323  LUMO = -0.113677669306522
+cycle= 16 E= -675.032194903544  delta_E= -1.12e-10  |g|= 2.09e-05  |ddm|= 4.89e-05
+  HOMO = -0.245369384075973  LUMO = -0.113677207478927
+Extra cycle  E= -675.032194903121  delta_E= 4.24e-10  |g|= 4.58e-05  |ddm|= 7.95e-05
+converged SCF energy = -675.032194903121
+
+
+******** <class 'pyscf.tdscf.rks.TDA'> for <class 'pyscf.df.df_jk.DFRKS'> ********
+nstates = 10 singlet
+deg_eia_thresh = 1.000e-03
+wfnsym = None
+conv_tol = 1e-05
+eigh lindep = 1e-12
+eigh level_shift = 0
+eigh max_cycle = 100
+chkfile = /tmp/tmp6bfmbc5n
+max_memory 4000 MB (current use 857 MB)
+
+
+Excitation energies (eV)
+[3.5511981  3.5533567  4.05248919 4.49310857 4.55819586 4.62530559
+ 4.9662467  5.0234941  5.12642329 5.64925351]
+
+------------------------------------------------------------------------
+State    Energy (eV)    X            Y            Z            |TDM|       
+------------------------------------------------------------------------
+1        3.551200       0.096260     1.644550     -0.036828    1.647777    
+2        3.553359       -0.003834    -0.064992    0.000426     0.065106    
+3        4.052491       -0.000144    0.000752     0.036773     0.036781    
+4        4.493111       0.058541     -1.504787    0.034334     1.506316    
+5        4.558198       -0.000148    0.001337     0.015189     0.015249    
+6        4.625308       0.010330     -0.361904    0.008298     0.362146    
+7        4.966249       -0.000131    0.000877     0.040359     0.040369    
+8        5.023497       0.305935     0.311419     -0.006035    0.436594    
+9        5.126426       0.000058     -0.000680    -0.023839    0.023848    
+10       5.649256       -0.080324    -0.334141    0.007251     0.343736    
+
+================================================================================
+RUNNING BASIS: def2-TZVP (def2-TZVP) | XC=b3lyp
+================================================================================
+#INFO: **** input file is /global/scratch/users/vaibhavvaiyakarnam/bdp_tddft/nbd_variants_bundle_plus_grid_basis/nbd_base_basis_sweep_b3lyp.py ****
+import csv
+import time
+import traceback
+
+import numpy
+from pyscf import gto, scf, tdscf
+
+# ============================================================
+# NBD-Amine base TD-DFT/TDA basis-set sweep
+# Functional: B3LYP
+# Response: normal PySCF TDA, not QED-TDDFT
+#
+# This is modeled after nbd_base.py, but loops over a compact
+# set of basis sets useful for checking excited-state sensitivity.
+# ============================================================
+
+EV_CONVERSION = 27.2114
+XC_FUNCTIONAL = "b3lyp"
+NROOTS = 10
+USE_DENSITY_FITTING = True
+USE_DDCOSMO = False  # keep this False to match the original nbd_base.py vacuum-style calculation
+SOLVENT_EPSILON = 3.0
+
+BASIS_SETS = [
+    ("6-31Gstar", "6-31G*"),
+    ("6-31plusGstarstar", "6-31+G**"),
+    ("def2-SVP", "def2-SVP"),
+    ("def2-TZVP", "def2-TZVP"),
+]
+
+ATOM_BLOCK = """
+C          -2.99554846        1.49184713        0.06984285
+C          -3.08915556        0.07862534        0.10145860
+C          -1.79815582        2.17809899        0.05826152
+C          -0.58983022        1.41049177        0.07966505
+C          -1.95291341       -0.72591027        0.12325400
+C          -0.69349421       -0.02259677        0.11170980
+N          -1.78904308        3.63135873        0.02520691
+N          -1.95150461       -2.07986412        0.15360125
+N           0.69806302        1.72629785        0.07703127
+N           0.51633005       -0.54566576        0.12780684
+O           1.35157792        0.52020757        0.10665545
+O          -2.87356420        4.21273120        0.00856359
+O          -0.69243507        4.18038272        0.01590057
+H          -3.90624208        2.09109650        0.05328804
+H          -4.07782349       -0.38361936        0.10860611
+H          -2.81569835       -2.60270478        0.16240987
+H          -1.07520465       -2.58348058        0.16777606
+"""
+
+
+def build_mol(basis_name):
+    mol = gto.Mole()
+    mol.verbose = 4
+    mol.atom = ATOM_BLOCK
+    mol.basis = basis_name
+    mol.build()
+    return mol
+
+
+def build_mean_field(mol):
+    mf = scf.RKS(mol)
+    if USE_DENSITY_FITTING:
+        mf = mf.density_fit()
+    mf.xc = XC_FUNCTIONAL
+    if USE_DDCOSMO:
+        mf = mf.ddCOSMO()
+        mf.with_solvent.eps = SOLVENT_EPSILON
+    mf.kernel()
+    if not mf.converged:
+        raise RuntimeError("SCF did not converge")
+    return mf
+
+
+def run_tda(mf):
+    td = tdscf.TDA(mf)
+    td.nroots = NROOTS
+    td.kernel()
+    return td
+
+
+def run_basis_sweep():
+    csv_name = "nbd_base_basis_sweep_b3lyp.csv"
+    with open(csv_name, "w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([
+            "basis_label", "basis", "functional", "use_ddcosmo", "epsilon",
+            "state", "energy_ev", "tdm_x", "tdm_y", "tdm_z", "tdm_norm",
+            "status", "elapsed_seconds"
+        ])
+
+        for basis_label, basis_name in BASIS_SETS:
+            start = time.time()
+            print("\n" + "=" * 80)
+            print(f"RUNNING BASIS: {basis_label} ({basis_name}) | XC={XC_FUNCTIONAL}")
+            print("=" * 80)
+            try:
+                mol = build_mol(basis_name)
+                mf = build_mean_field(mol)
+                td = run_tda(mf)
+                tdms = td.transition_dipole()
+                elapsed = time.time() - start
+
+                print("\n" + "-" * 72)
+                print(f"{'State':<8} {'Energy (eV)':<14} {'X':<12} {'Y':<12} {'Z':<12} {'|TDM|':<12}")
+                print("-" * 72)
+                for i in range(min(NROOTS, len(td.e))):
+                    tx, ty, tz = tdms[i]
+                    tdm_norm = float(numpy.linalg.norm(tdms[i]))
+                    energy_ev = float(td.e[i] * EV_CONVERSION)
+                    print(f"{i+1:<8} {energy_ev:<14.6f} {tx:<12.6f} {ty:<12.6f} {tz:<12.6f} {tdm_norm:<12.6f}")
+                    writer.writerow([
+                        basis_label, basis_name, XC_FUNCTIONAL, USE_DDCOSMO, SOLVENT_EPSILON,
+                        i + 1, f"{energy_ev:.10f}", f"{tx:.10f}", f"{ty:.10f}", f"{tz:.10f}",
+                        f"{tdm_norm:.10f}", "ok", f"{elapsed:.2f}"
+                    ])
+                handle.flush()
+            except Exception as exc:
+                elapsed = time.time() - start
+                print("FAILED:", repr(exc))
+                traceback.print_exc()
+                writer.writerow([
+                    basis_label, basis_name, XC_FUNCTIONAL, USE_DDCOSMO, SOLVENT_EPSILON,
+                    "", "", "", "", "", "", f"failed: {repr(exc)}", f"{elapsed:.2f}"
+                ])
+                handle.flush()
+
+    print(f"\nDone. Wrote {csv_name}")
+
+
+if __name__ == "__main__":
+    run_basis_sweep()
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='n0070.mhg0', release='4.18.0-553.58.1.el8_10.x86_64', version='#1 SMP Thu Jun 26 15:50:39 UTC 2025', machine='x86_64')  Threads 8
+Python 3.10.20 (main, Mar 11 2026, 17:46:40) [GCC 14.3.0]
+numpy 2.2.6  scipy 1.15.3  h5py 3.16.0
+Date: Sun May 10 01:13:43 2026
+PySCF version 2.13.0
+PySCF path  /global/home/users/vaibhavvaiyakarnam/.local/lib/python3.10/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 17
+[INPUT] num. electrons = 92
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 C     -2.995548460000   1.491847130000   0.069842850000 AA   -5.660766182263   2.819182495418   0.131983858259 Bohr   0.0
+[INPUT]  2 C     -3.089155560000   0.078625340000   0.101458600000 AA   -5.837657964577   0.148580359051   0.191728966982 Bohr   0.0
+[INPUT]  3 C     -1.798155820000   2.178098990000   0.058261520000 AA   -3.398022029093   4.116010563292   0.110098316401 Bohr   0.0
+[INPUT]  4 C     -0.589830220000   1.410491770000   0.079665050000 AA   -1.114617575792   2.665443146253   0.150545126200 Bohr   0.0
+[INPUT]  5 C     -1.952913410000  -0.725910270000   0.123254000000 AA   -3.690471489890  -1.371771601309   0.232916303757 Bohr   0.0
+[INPUT]  6 C     -0.693494210000  -0.022596770000   0.111709800000 AA   -1.310514125872  -0.042701706600   0.211100927430 Bohr   0.0
+[INPUT]  7 N     -1.789043080000   3.631358730000   0.025206910000 AA   -3.380801446248   6.862273459748   0.047634156347 Bohr   0.0
+[INPUT]  8 N     -1.951504610000  -2.079864120000   0.153601250000 AA   -3.687809243726  -3.930373563110   0.290264294891 Bohr   0.0
+[INPUT]  9 N      0.698063020000   1.726297850000   0.077031270000 AA    1.319147925487   3.262230145925   0.145568003327 Bohr   0.0
+[INPUT] 10 N      0.516330050000  -0.545665760000   0.127806840000 AA    0.975722384383  -1.031158841953   0.241519924446 Bohr   0.0
+[INPUT] 11 O      1.351577920000   0.520207570000   0.106655450000 AA    2.554112104809   0.983049835226   0.201549590192 Bohr   0.0
+[INPUT] 12 O     -2.873564200000   4.212731200000   0.008563590000 AA   -5.430249339355   7.960908204410   0.016182839743 Bohr   0.0
+[INPUT] 13 O     -0.692435070000   4.180382720000   0.015900570000 AA   -1.308512641344   7.899778436664   0.030047722524 Bohr   0.0
+[INPUT] 14 H     -3.906242080000   2.091096500000   0.053288040000 AA   -7.381727707451   3.951599685037   0.100699801315 Bohr   0.0
+[INPUT] 15 H     -4.077823490000  -0.383619360000   0.108606110000 AA   -7.705969580418  -0.724935526481   0.205235803354 Bohr   0.0
+[INPUT] 16 H     -2.815698350000  -2.602704780000   0.162409870000 AA   -5.320898730890  -4.918399217296   0.306910174226 Bohr   0.0
+[INPUT] 17 H     -1.075204650000  -2.583480580000   0.167776060000 AA   -2.031842316359  -4.882070744332   0.317050803659 Bohr   0.0
+
+nuclear repulsion = 770.123852130282
+number of shells = 159
+number of NR pGTOs = 630
+number of NR cGTOs = 427
+basis = def2-TZVP
+ecp = {}
+CPU time:     15280.81
+
+
+******** <class 'pyscf.df.df_jk.DFRKS'> ********
+method = DFRKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-09
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = False
+chkfile to save SCF result = /tmp/tmpiu6lgr5j
+max_memory 4000 MB (current use 494 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x147f72fd77f0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x147f72fd6200>
+small_rho_cutoff = 0
+Set gradient conv threshold to 3.16228e-05
+Initial guess from minao.
+tot grids = 221800
+******** <class 'pyscf.df.df.DF'> ********
+auxbasis = None
+max_memory = 4000
+init E= -678.486348121683
+  HOMO = -0.238894291149538  LUMO = -0.146398121974805
+cycle= 1 E= -675.500183976213  delta_E= 2.99  |g|= 1.29  |ddm|= 5.55
+  HOMO = -0.142470366295144  LUMO = -0.134967863411378
+cycle= 2 E= -674.684162613308  delta_E= 0.816  |g|= 2.56  |ddm|= 6.39
+  HOMO = -0.237623959857288  LUMO = -0.115097377076665
+cycle= 3 E= -675.791003022849  delta_E= -1.11  |g|= 0.233  |ddm|= 4.99
+  HOMO = -0.25791363852543  LUMO = -0.123491766238995
+cycle= 4 E= -675.790252875577  delta_E= 0.00075  |g|= 0.241  |ddm|= 0.572
+  HOMO = -0.252559481770149  LUMO = -0.123097968218328
+cycle= 5 E= -675.802275583554  delta_E= -0.012  |g|= 0.0706  |ddm|= 0.324
+  HOMO = -0.250442925033013  LUMO = -0.121024194934627
+cycle= 6 E= -675.803094065914  delta_E= -0.000818  |g|= 0.0313  |ddm|= 0.0881
+  HOMO = -0.250154068952  LUMO = -0.120299459095602
+cycle= 7 E= -675.803278977737  delta_E= -0.000185  |g|= 0.0108  |ddm|= 0.0445
+  HOMO = -0.250307178528875  LUMO = -0.120302753645401
+cycle= 8 E= -675.803299297748  delta_E= -2.03e-05  |g|= 0.00335  |ddm|= 0.0153
+  HOMO = -0.250493818080916  LUMO = -0.120415462716498
+cycle= 9 E= -675.80330135178  delta_E= -2.05e-06  |g|= 0.00128  |ddm|= 0.00359
+  HOMO = -0.250455742550546  LUMO = -0.120417724583003
+cycle= 10 E= -675.80330168971  delta_E= -3.38e-07  |g|= 0.000508  |ddm|= 0.00206
+  HOMO = -0.250440131357703  LUMO = -0.120393386763986
+cycle= 11 E= -675.803301741544  delta_E= -5.18e-08  |g|= 0.00024  |ddm|= 0.000952
+  HOMO = -0.250440182387447  LUMO = -0.120387042055853
+cycle= 12 E= -675.803301750486  delta_E= -8.94e-09  |g|= 0.000139  |ddm|= 0.000459
+  HOMO = -0.25043889327327  LUMO = -0.120389368750608
+cycle= 13 E= -675.803301754089  delta_E= -3.6e-09  |g|= 5.16e-05  |ddm|= 0.000218
+  HOMO = -0.250440674831221  LUMO = -0.120390064258679
+cycle= 14 E= -675.803301754621  delta_E= -5.32e-10  |g|= 2.13e-05  |ddm|= 6.96e-05
+  HOMO = -0.250439881177169  LUMO = -0.120390013012248
+Extra cycle  E= -675.803301754133  delta_E= 4.88e-10  |g|= 5.42e-05  |ddm|= 6.08e-05
+converged SCF energy = -675.803301754133
+
+
+******** <class 'pyscf.tdscf.rks.TDA'> for <class 'pyscf.df.df_jk.DFRKS'> ********
+nstates = 10 singlet
+deg_eia_thresh = 1.000e-03
+wfnsym = None
+conv_tol = 1e-05
+eigh lindep = 1e-12
+eigh level_shift = 0
+eigh max_cycle = 100
+chkfile = /tmp/tmpiu6lgr5j
+max_memory 4000 MB (current use 1308 MB)
+
+
+Excitation energies (eV)
+[3.45360032 3.60779456 4.1062106  4.38308106 4.61782101 4.69963092
+ 4.95979003 5.00056857 5.17544025 5.50113602]
+
+------------------------------------------------------------------------
+State    Energy (eV)    X            Y            Z            |TDM|       
+------------------------------------------------------------------------
+1        3.453602       -0.076311    -1.684174    0.037758     1.686325    
+2        3.607796       0.000080     0.000738     -0.002392    0.002505    
+3        4.106213       -0.000188    0.001116     0.050549     0.050562    
+4        4.383083       0.060974     -1.546813    0.035303     1.548417    
+5        4.617823       -0.000024    0.000173     -0.001879    0.001887    
+6        4.699633       -0.096781    0.058030     -0.001716    0.112858    
+7        4.959793       -0.349735    -0.301469    0.005680     0.461769    
+8        5.000571       -0.000060    0.000416     0.019571     0.019576    
+9        5.175443       0.000084     -0.000554    -0.020645    0.020652    
+10       5.501139       -0.146726    -0.343810    0.007224     0.373880    
+
+Done. Wrote nbd_base_basis_sweep_b3lyp.csv

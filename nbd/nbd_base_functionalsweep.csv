@@ -1,0 +1,63 @@
+functional,state,energy_ev,tdm_x,tdm_y,tdm_z,status,elapsed_seconds,notes
+b3lyp,1,3.4620498448,0.0606717292,1.8105134587,-0.0406621726,ok,745.87,baseline global hybrid; useful comparison to your original
+b3lyp,2,3.5959183038,0.0000791634,0.0009408156,-0.0033789060,ok,745.87,baseline global hybrid; useful comparison to your original
+b3lyp,3,4.1128897610,-0.0002115710,0.0013255415,0.0596670482,ok,745.87,baseline global hybrid; useful comparison to your original
+b3lyp,4,4.3508939167,-0.0720331494,1.5119799538,-0.0345627643,ok,745.87,baseline global hybrid; useful comparison to your original
+b3lyp,5,4.6370773249,0.0000101636,-0.0000234979,0.0067156856,ok,745.87,baseline global hybrid; useful comparison to your original
+b3lyp,6,4.7088031051,-0.0904337328,0.0335591728,-0.0011471726,ok,745.87,baseline global hybrid; useful comparison to your original
+b3lyp,7,4.9634461173,-0.3673150301,-0.2868506768,0.0052904825,ok,745.87,baseline global hybrid; useful comparison to your original
+b3lyp,8,5.0297469507,-0.0000651082,0.0003881522,0.0182592358,ok,745.87,baseline global hybrid; useful comparison to your original
+b3lyp,9,5.2091765609,-0.0000790390,0.0004758421,0.0173362765,ok,745.87,baseline global hybrid; useful comparison to your original
+b3lyp,10,5.2626963644,0.0003103638,-0.0015885348,-0.0752898983,ok,745.87,baseline global hybrid; useful comparison to your original
+pbe0,1,3.5630094628,-0.0679152867,-1.8736391530,0.0420659828,ok,812.71,global hybrid; often robust for local valence excitations
+pbe0,2,3.7271624122,0.0000742344,0.0007143365,-0.0030617403,ok,812.71,global hybrid; often robust for local valence excitations
+pbe0,3,4.2421301439,0.0002099213,-0.0013441694,-0.0601281091,ok,812.71,global hybrid; often robust for local valence excitations
+pbe0,4,4.5170709355,-0.0734341565,1.4401197385,-0.0329454237,ok,812.71,global hybrid; often robust for local valence excitations
+pbe0,5,4.8491425828,0.0000057477,-0.0000718853,0.0024721472,ok,812.71,global hybrid; often robust for local valence excitations
+pbe0,6,4.9113683161,0.1548371889,0.0432393156,-0.0003807420,ok,812.71,global hybrid; often robust for local valence excitations
+pbe0,7,5.1432624599,0.3466157154,0.3014715609,-0.0057145656,ok,812.71,global hybrid; often robust for local valence excitations
+pbe0,8,5.2258678394,-0.0000774988,0.0004954332,0.0239484602,ok,812.71,global hybrid; often robust for local valence excitations
+pbe0,9,5.4367815475,0.0001777097,-0.0010651476,-0.0435179439,ok,812.71,global hybrid; often robust for local valence excitations
+pbe0,10,5.5242510373,0.0003274941,-0.0015428729,-0.0729145766,ok,812.71,global hybrid; often robust for local valence excitations
+cam-b3lyp,1,3.7428702761,-0.0730427394,-2.0745440957,0.0465878030,ok,1254.78,range-separated hybrid; better for charge-transfer/nitro systems
+cam-b3lyp,2,3.9214847474,0.0000700344,0.0006359085,-0.0035243734,ok,1254.78,range-separated hybrid; better for charge-transfer/nitro systems
+cam-b3lyp,3,4.4390320475,0.0002199223,-0.0014894768,-0.0670401353,ok,1254.78,range-separated hybrid; better for charge-transfer/nitro systems
+cam-b3lyp,4,4.8917680687,0.1005576273,-1.1265571173,0.0259735222,ok,1254.78,range-separated hybrid; better for charge-transfer/nitro systems
+cam-b3lyp,5,5.2528066161,-0.3438352855,-0.2747853604,0.0050366215,ok,1254.78,range-separated hybrid; better for charge-transfer/nitro systems
+cam-b3lyp,6,5.2572701467,-0.0000802546,0.0004368602,0.0180777729,ok,1254.78,range-separated hybrid; better for charge-transfer/nitro systems
+cam-b3lyp,7,5.6196251918,0.0002272191,-0.0011865580,-0.0578055315,ok,1254.78,range-separated hybrid; better for charge-transfer/nitro systems
+cam-b3lyp,8,5.8626302007,0.1294447276,0.2954431846,-0.0063838516,ok,1254.78,range-separated hybrid; better for charge-transfer/nitro systems
+cam-b3lyp,9,6.0188038559,-0.0006994386,0.0046128154,0.2003543599,ok,1254.78,range-separated hybrid; better for charge-transfer/nitro systems
+cam-b3lyp,10,6.0365755740,-0.0002252462,0.0020998705,0.0951857098,ok,1254.78,range-separated hybrid; better for charge-transfer/nitro systems
+wb97x,1,3.8918964295,-0.0839251355,-2.1338414658,0.0478914588,ok,1326.26,range-separated hybrid; useful CT/conjugation comparison
+wb97x,2,4.0141035503,-0.0000863588,-0.0012306168,0.0020882942,ok,1326.26,range-separated hybrid; useful CT/conjugation comparison
+wb97x,3,4.5329680983,0.0002040371,-0.0014037971,-0.0646243141,ok,1326.26,range-separated hybrid; useful CT/conjugation comparison
+wb97x,4,5.2206334459,-0.1554024937,0.9003407596,-0.0210422960,ok,1326.26,range-separated hybrid; useful CT/conjugation comparison
+wb97x,5,5.4653576353,-0.3511064764,-0.4229158210,0.0083991247,ok,1326.26,range-separated hybrid; useful CT/conjugation comparison
+wb97x,6,5.4778700723,0.0000877227,0.0006844505,0.0199038142,ok,1326.26,range-separated hybrid; useful CT/conjugation comparison
+wb97x,7,6.1934584026,-0.0002112238,0.0012114251,0.0547046109,ok,1326.26,range-separated hybrid; useful CT/conjugation comparison
+wb97x,8,6.2319567827,-0.0005868876,0.0044571860,0.2616042983,ok,1326.26,range-separated hybrid; useful CT/conjugation comparison
+wb97x,9,6.2374581804,-0.0671167963,0.3257858990,-0.0064736027,ok,1326.26,range-separated hybrid; useful CT/conjugation comparison
+wb97x,10,6.4798726742,0.3109983508,-0.0316169359,0.0019733844,ok,1326.26,range-separated hybrid; useful CT/conjugation comparison
+wb97x-d,,,,,,failed: NotImplementedError('wb97x-d is not supported yet.'),0.00,range-separated hybrid with empirical dispersion
+lc-wpbe,,,,,,"failed: KeyError(""LibXCFunctional: name 'LC' not found."")",0.00,long-range-corrected GGA hybrid
+m06-2x,1,3.7968697902,0.0801140437,2.0933770714,-0.0469773223,ok,2350.20,high-HF meta-hybrid; strong CT benchmark performer
+m06-2x,2,3.9074930428,0.0000612579,0.0008216670,-0.0046733421,ok,2350.20,high-HF meta-hybrid; strong CT benchmark performer
+m06-2x,3,4.4076903882,0.0002049758,-0.0013321109,-0.0617449016,ok,2350.20,high-HF meta-hybrid; strong CT benchmark performer
+m06-2x,4,5.0217183724,-0.1103338152,1.0794836096,-0.0249231454,ok,2350.20,high-HF meta-hybrid; strong CT benchmark performer
+m06-2x,5,5.2504504652,0.0000605097,-0.0004377252,-0.0186626230,ok,2350.20,high-HF meta-hybrid; strong CT benchmark performer
+m06-2x,6,5.3535828589,0.3039402859,0.3759401801,-0.0074439513,ok,2350.20,high-HF meta-hybrid; strong CT benchmark performer
+m06-2x,7,5.5096547213,0.0002109627,-0.0009003416,-0.0486573901,ok,2350.20,high-HF meta-hybrid; strong CT benchmark performer
+m06-2x,8,5.9097472231,0.1721363228,0.3381931981,-0.0072746259,ok,2350.20,high-HF meta-hybrid; strong CT benchmark performer
+m06-2x,9,6.0117550301,-0.0008266884,0.0057983721,0.2512149794,ok,2350.20,high-HF meta-hybrid; strong CT benchmark performer
+m06-2x,10,6.1918583721,0.0489208622,0.1537487450,-0.0032404714,ok,2350.20,high-HF meta-hybrid; strong CT benchmark performer
+tpssh,1,3.3811127424,-0.0005701437,-0.0158459515,-0.0003675090,ok,1516.81,meta-hybrid comparison point with moderate exact exchange
+tpssh,2,3.3916597943,-0.0625371283,-1.6664940895,0.0374049493,ok,1516.81,meta-hybrid comparison point with moderate exact exchange
+tpssh,3,3.8844117413,0.0001743239,-0.0009851025,-0.0481377344,ok,1516.81,meta-hybrid comparison point with moderate exact exchange
+tpssh,4,4.2359255843,0.0694157860,-1.6011916252,0.0365455792,ok,1516.81,meta-hybrid comparison point with moderate exact exchange
+tpssh,5,4.3633961105,-0.0137998816,-0.3088502275,0.0069738639,ok,1516.81,meta-hybrid comparison point with moderate exact exchange
+tpssh,6,4.3727256631,0.0000559877,0.0017401655,-0.0106935674,ok,1516.81,meta-hybrid comparison point with moderate exact exchange
+tpssh,7,4.8333053918,0.3548726215,0.2483026459,-0.0044298730,ok,1516.81,meta-hybrid comparison point with moderate exact exchange
+tpssh,8,4.8506771238,0.0003017687,0.0002595225,0.0016565202,ok,1516.81,meta-hybrid comparison point with moderate exact exchange
+tpssh,9,4.9022904747,-0.0001080237,0.0002667773,0.0172392213,ok,1516.81,meta-hybrid comparison point with moderate exact exchange
+tpssh,10,5.3176604827,0.2036019684,0.3467531755,-0.0070916731,ok,1516.81,meta-hybrid comparison point with moderate exact exchange

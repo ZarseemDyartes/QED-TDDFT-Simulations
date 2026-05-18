@@ -1,0 +1,259 @@
+
+--- Building the C343 Supermolecule ---
+#INFO: **** input file is /global/scratch/users/vaibhavvaiyakarnam/bdp_tddft/nbd_variants_bundle_plus_grid_basis/nbd_dimer_lambdascan_cam_b3lyp.py ****
+import numpy
+from pyscf import gto, scf, tdscf
+import qed
+
+# ==========================================
+# 1. MOLECULE SETUP: NBD-Amine
+# ==========================================
+print("\n--- Building the C343 Supermolecule ---")
+
+c343_single = '''
+C          -2.99554846        1.49184713        0.06984285
+C          -3.08915556        0.07862534        0.10145860
+C          -1.79815582        2.17809899        0.05826152
+C          -0.58983022        1.41049177        0.07966505
+C          -1.95291341       -0.72591027        0.12325400
+C          -0.69349421       -0.02259677        0.11170980
+N          -1.78904308        3.63135873        0.02520691
+N          -1.95150461       -2.07986412        0.15360125
+N           0.69806302        1.72629785        0.07703127
+N           0.51633005       -0.54566576        0.12780684
+O           1.35157792        0.52020757        0.10665545
+O          -2.87356420        4.21273120        0.00856359
+O          -0.69243507        4.18038272        0.01590057
+H          -3.90624208        2.09109650        0.05328804
+H          -4.07782349       -0.38361936        0.10860611
+H          -2.81569835       -2.60270478        0.16240987
+H          -1.07520465       -2.58348058        0.16777606
+'''
+
+# Automatically generate the second molecule shifted by 20 Å on the Z-axis
+c343_dimer = c343_single
+for line in c343_single.strip().split('\n'):
+    parts = line.split()
+    atom = parts[0]
+    x = float(parts[1])
+    y = float(parts[2])
+    z = float(parts[3]) + 20.0
+    c343_dimer += f"\n{atom}  {x:.10f}  {y:.10f}  {z:.10f}"
+
+mol = gto.Mole()
+mol.verbose = 4
+mol.atom = c343_dimer
+mol.basis = '6-31+G**'
+mol.build()
+
+# ==========================================
+# 2. GROUND STATE SCF
+# ==========================================
+print("\n--- Starting Ground State SCF (Dimer) ---")
+# Using density fitting to speed up the double-sized calculation
+mf = scf.RKS(mol).density_fit() 
+mf.xc = "cam-b3lyp"  # range-separated hybrid functional
+mf = mf.ddCOSMO()            
+mf.with_solvent.eps = 3.0    
+mf.kernel()
+
+# ==========================================
+# 3. PRE-SCAN: STANDARD TD-DFT (For Alignment)
+# ==========================================
+print("\n--- Running Standard TD-DFT to find Collective Resonance ---")
+td_std = tdscf.TDA(mf)
+# Requesting more roots because the density of states is higher for a dimer
+td_std.nroots = 10  
+td_std.kernel()
+
+# Grab the energy of the first bright collective state
+s1_energy_au = td_std.e[0]
+cavity_freq = numpy.asarray([s1_energy_au])
+
+# Extract the collective Transition Dipole Moment vector
+tdm_vector = td_std.transition_dipole()[0]
+tdm_magnitude = numpy.linalg.norm(tdm_vector)
+tdm_direction = tdm_vector / tdm_magnitude
+
+print(f"\n>> ALIGNMENT RESULTS <<")
+print(f"Resonant Cavity Freq : {s1_energy_au:.6f} a.u.")
+print(f"TDM Direction (Unit) : [{tdm_direction[0]:.4f}, {tdm_direction[1]:.4f}, {tdm_direction[2]:.4f}]")
+
+# ==========================================
+# 4. QED LAMBDA SCAN
+# ==========================================
+print("\n--- Starting QED Lambda Scan (Collective Coupling) ---")
+
+# Scan lambda from 0.00 to 0.02 a.u.
+lambda_values = numpy.linspace(0.00, 0.02, 11)
+
+for lam in lambda_values:
+    print(f"\n========================================")
+    print(f" RUNNING LAMBDA COUPLING: {lam:.4f} a.u.")
+    print(f"========================================")
+    
+    # Scale the cavity mode vector by the current lambda
+    scaled_cavity_mode = lam * tdm_direction
+    cavity_mode = numpy.asarray([scaled_cavity_mode])
+
+    # TDA-JC Setup using scanned lambda and locked frequency
+    cav_model = qed.JC(mf, cavity_mode=cavity_mode, cavity_freq=cavity_freq)
+    td_qed    = qed.TDA(mf, cav_obj=cav_model)
+    td_qed.nroots = 10  
+    
+    # Run the QED TD-DFT calculation
+    td_qed.kernel()#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='n0046.mhg0', release='4.18.0-553.58.1.el8_10.x86_64', version='#1 SMP Thu Jun 26 15:50:39 UTC 2025', machine='x86_64')  Threads 8
+Python 3.10.20 (main, Mar 11 2026, 17:46:40) [GCC 14.3.0]
+numpy 2.2.6  scipy 1.15.3  h5py 3.16.0
+Date: Sun May 10 00:37:00 2026
+PySCF version 2.13.0
+PySCF path  /global/home/users/vaibhavvaiyakarnam/.local/lib/python3.10/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 34
+[INPUT] num. electrons = 184
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 C     -2.995548460000   1.491847130000   0.069842850000 AA   -5.660766182263   2.819182495418   0.131983858259 Bohr   0.0
+[INPUT]  2 C     -3.089155560000   0.078625340000   0.101458600000 AA   -5.837657964577   0.148580359051   0.191728966982 Bohr   0.0
+[INPUT]  3 C     -1.798155820000   2.178098990000   0.058261520000 AA   -3.398022029093   4.116010563292   0.110098316401 Bohr   0.0
+[INPUT]  4 C     -0.589830220000   1.410491770000   0.079665050000 AA   -1.114617575792   2.665443146253   0.150545126200 Bohr   0.0
+[INPUT]  5 C     -1.952913410000  -0.725910270000   0.123254000000 AA   -3.690471489890  -1.371771601309   0.232916303757 Bohr   0.0
+[INPUT]  6 C     -0.693494210000  -0.022596770000   0.111709800000 AA   -1.310514125872  -0.042701706600   0.211100927430 Bohr   0.0
+[INPUT]  7 N     -1.789043080000   3.631358730000   0.025206910000 AA   -3.380801446248   6.862273459748   0.047634156347 Bohr   0.0
+[INPUT]  8 N     -1.951504610000  -2.079864120000   0.153601250000 AA   -3.687809243726  -3.930373563110   0.290264294891 Bohr   0.0
+[INPUT]  9 N      0.698063020000   1.726297850000   0.077031270000 AA    1.319147925487   3.262230145925   0.145568003327 Bohr   0.0
+[INPUT] 10 N      0.516330050000  -0.545665760000   0.127806840000 AA    0.975722384383  -1.031158841953   0.241519924446 Bohr   0.0
+[INPUT] 11 O      1.351577920000   0.520207570000   0.106655450000 AA    2.554112104809   0.983049835226   0.201549590192 Bohr   0.0
+[INPUT] 12 O     -2.873564200000   4.212731200000   0.008563590000 AA   -5.430249339355   7.960908204410   0.016182839743 Bohr   0.0
+[INPUT] 13 O     -0.692435070000   4.180382720000   0.015900570000 AA   -1.308512641344   7.899778436664   0.030047722524 Bohr   0.0
+[INPUT] 14 H     -3.906242080000   2.091096500000   0.053288040000 AA   -7.381727707451   3.951599685037   0.100699801315 Bohr   0.0
+[INPUT] 15 H     -4.077823490000  -0.383619360000   0.108606110000 AA   -7.705969580418  -0.724935526481   0.205235803354 Bohr   0.0
+[INPUT] 16 H     -2.815698350000  -2.602704780000   0.162409870000 AA   -5.320898730890  -4.918399217296   0.306910174226 Bohr   0.0
+[INPUT] 17 H     -1.075204650000  -2.583480580000   0.167776060000 AA   -2.031842316359  -4.882070744332   0.317050803659 Bohr   0.0
+[INPUT] 18 C     -2.995548460000   1.491847130000  20.069842850000 AA   -5.660766182263   2.819182495418  37.926506349560 Bohr   0.0
+[INPUT] 19 C     -3.089155560000   0.078625340000  20.101458600000 AA   -5.837657964577   0.148580359051  37.986251458283 Bohr   0.0
+[INPUT] 20 C     -1.798155820000   2.178098990000  20.058261520000 AA   -3.398022029093   4.116010563292  37.904620807702 Bohr   0.0
+[INPUT] 21 C     -0.589830220000   1.410491770000  20.079665050000 AA   -1.114617575792   2.665443146253  37.945067617501 Bohr   0.0
+[INPUT] 22 C     -1.952913410000  -0.725910270000  20.123254000000 AA   -3.690471489890  -1.371771601309  38.027438795058 Bohr   0.0
+[INPUT] 23 C     -0.693494210000  -0.022596770000  20.111709800000 AA   -1.310514125872  -0.042701706600  38.005623418731 Bohr   0.0
+[INPUT] 24 N     -1.789043080000   3.631358730000  20.025206910000 AA   -3.380801446248   6.862273459748  37.842156647648 Bohr   0.0
+[INPUT] 25 N     -1.951504610000  -2.079864120000  20.153601250000 AA   -3.687809243726  -3.930373563110  38.084786786192 Bohr   0.0
+[INPUT] 26 N      0.698063020000   1.726297850000  20.077031270000 AA    1.319147925487   3.262230145925  37.940090494629 Bohr   0.0
+[INPUT] 27 N      0.516330050000  -0.545665760000  20.127806840000 AA    0.975722384383  -1.031158841953  38.036042415747 Bohr   0.0
+[INPUT] 28 O      1.351577920000   0.520207570000  20.106655450000 AA    2.554112104809   0.983049835226  37.996072081493 Bohr   0.0
+[INPUT] 29 O     -2.873564200000   4.212731200000  20.008563590000 AA   -5.430249339355   7.960908204410  37.810705331044 Bohr   0.0
+[INPUT] 30 O     -0.692435070000   4.180382720000  20.015900570000 AA   -1.308512641344   7.899778436664  37.824570213826 Bohr   0.0
+[INPUT] 31 H     -3.906242080000   2.091096500000  20.053288040000 AA   -7.381727707451   3.951599685037  37.895222292616 Bohr   0.0
+[INPUT] 32 H     -4.077823490000  -0.383619360000  20.108606110000 AA   -7.705969580418  -0.724935526481  37.999758294656 Bohr   0.0
+[INPUT] 33 H     -2.815698350000  -2.602704780000  20.162409870000 AA   -5.320898730890  -4.918399217296  38.101432665527 Bohr   0.0
+[INPUT] 34 H     -1.075204650000  -2.583480580000  20.167776060000 AA   -2.031842316359  -4.882070744332  38.111573294960 Bohr   0.0
+
+nuclear repulsion = 1760.90899061751
+number of shells = 232
+number of NR pGTOs = 862
+number of NR cGTOs = 508
+basis = 6-31+G**
+ecp = {}
+CPU time:         2.58
+
+--- Starting Ground State SCF (Dimer) ---
+
+
+******** <class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+method = ddCOSMODFRKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-09
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = False
+chkfile to save SCF result = /tmp/tmp1eixs028
+max_memory 4000 MB (current use 106 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = cam-b3lyp
+    T. Yanai, D. P. Tew, and N. C. Handy.,  Chem. Phys. Lett. 393, 51 (2004)
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x146b5a50c0d0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x146b5a4c2a70>
+small_rho_cutoff = 0
+******** <class 'pyscf.solvent.ddcosmo.ddCOSMO'> ********
+lebedev_order = 17 (110 grids per sphere)
+lmax = 6
+eta = 0.1
+eps = 3.0
+frozen = False
+equilibrium_solvation = False
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x146b5a50c0d0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x146b5a4c2a70>
+Set gradient conv threshold to 3.16228e-05
+Initial guess from minao.
+tot grids = 443592
+******** <class 'pyscf.df.df.DF'> ********
+auxbasis = None
+max_memory = 4000
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for O 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for H 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for N 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for C 6-31+G**
+Create RSH-DF object <pyscf.df.df.DF object at 0x146b561a88e0> for omega=0.33
+******** <class 'pyscf.df.df.DF'> ********
+auxbasis = auxmol.basis = {'O': 'heavy-aug-cc-pvdz-jkfit', 'H': 'heavy-aug-cc-pvdz-jkfit', 'N': 'heavy-aug-cc-pvdz-jkfit', 'C': 'heavy-aug-cc-pvdz-jkfit'}
+max_memory = 4000
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for O 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for H 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for N 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for C 6-31+G**
+_cderi_to_save = /tmp/tmpfhgibhs9
+tot grids = 443588
+ddCOSMO E_diel = -0.000186165040926357
+Solvent Energy = -0.000186165040926357
+init E= -1356.74182473861
+
+WARN: 4 small eigenvectors of overlap matrix removed because of linear dependency between AOs.
+
+
+  HOMO = -0.221900469023165  LUMO = -0.121250676852571
+ddCOSMO E_diel = -0.0692989573031023
+Solvent Energy = -0.0692989573031023
+cycle= 1 E= -1349.94724150948  delta_E= 6.79  |g|= 1.74  |ddm|= 92.5
+  HOMO = -0.253989650847718  LUMO = -0.108864164732992
+ddCOSMO E_diel = -0.0241353466188447
+Solvent Energy = -0.0241353466188447
+cycle= 2 E= -1349.33219525702  delta_E= 0.615  |g|= 2.65  |ddm|= 12.4
+  HOMO = -0.290287415705947  LUMO = -0.0860465282124899
+ddCOSMO E_diel = -0.0309573830315137
+Solvent Energy = -0.0309573830315137
+cycle= 3 E= -1350.54916894341  delta_E= -1.22  |g|= 0.158  |ddm|= 5.38
+  HOMO = -0.293373006351267  LUMO = -0.0788765365874388
+ddCOSMO E_diel = -0.0297372558822104
+Solvent Energy = -0.0297372558822104
+cycle= 4 E= -1350.5527244288  delta_E= -0.00356  |g|= 0.115  |ddm|= 0.893
+  HOMO = -0.291027260507053  LUMO = -0.0785905469307714
+ddCOSMO E_diel = -0.0298931869798578
+Solvent Energy = -0.0298931869798578
+cycle= 5 E= -1350.55571592168  delta_E= -0.00299  |g|= 0.0327  |ddm|= 0.328
