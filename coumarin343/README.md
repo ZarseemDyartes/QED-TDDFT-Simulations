@@ -1,4 +1,4 @@
-[Coumarin 343](https://www.sigmaaldrich.com/US/en/product/aldrich/393029): 
+# [Coumarin 343](https://www.sigmaaldrich.com/US/en/product/aldrich/393029): 
 # Preliminary Tests 
 1. **Base**: Testing single-point KS-DFT calculations with a B3LYP/cc-pVDZ optimized geometry for Coumarin 343. B3LYP/6-31+G** single-point calculations run.
 2. **Solvents (TDA)**: B3LYP/cc-pVDZ optimized geometry, B3LYP/6-31+G** single-point KS-DFT + TDA(TDDFT) with ddCOSMO to simulate solvent effects from PMMA and water.
