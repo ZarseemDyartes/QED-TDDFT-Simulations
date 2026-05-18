@@ -2,7 +2,7 @@ This is a GitHub repository of data testing QED-TDDFT implementations in Python 
 
 For more information on the project, please see the uploaded paper and presentation.  
 
-Within each folder, a README.md file can be found that details the different jobs submitted.
+Within each folder, a README.md file details the different jobs submitted.
 
 All data has been collected on the HPC of and with the support of Lawrence Berkeley National Laboratory. 
 
