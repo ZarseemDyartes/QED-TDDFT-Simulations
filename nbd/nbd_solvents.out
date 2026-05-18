@@ -1,0 +1,361 @@
+#INFO: **** input file is /global/scratch/users/vaibhavvaiyakarnam/bdp_tddft/nbd_amine_ddcosmo_pmma_b3lyp_tda.py ****
+from pyscf import gto, scf, tdscf
+import numpy as np
+import time
+
+# ==========================================
+# Constants
+# ==========================================
+HARTREE_TO_EV = 27.211386245988
+EV_NM = 1239.8419843320026
+
+# ==========================================
+# 1. MOLECULE SETUP
+#    Geometry copied from nbd_base.py
+# ==========================================
+mol = gto.Mole()
+mol.verbose = 4
+mol.atom = '''
+C          -2.99554846        1.49184713        0.06984285
+C          -3.08915556        0.07862534        0.10145860
+C          -1.79815582        2.17809899        0.05826152
+C          -0.58983022        1.41049177        0.07966505
+C          -1.95291341       -0.72591027        0.12325400
+C          -0.69349421       -0.02259677        0.11170980
+N          -1.78904308        3.63135873        0.02520691
+N          -1.95150461       -2.07986412        0.15360125
+N           0.69806302        1.72629785        0.07703127
+N           0.51633005       -0.54566576        0.12780684
+O           1.35157792        0.52020757        0.10665545
+O          -2.87356420        4.21273120        0.00856359
+O          -0.69243507        4.18038272        0.01590057
+H          -3.90624208        2.09109650        0.05328804
+H          -4.07782349       -0.38361936        0.10860611
+H          -2.81569835       -2.60270478        0.16240987
+H          -1.07520465       -2.58348058        0.16777606
+'''
+mol.basis = '6-31+G**'
+mol.charge = 0
+mol.spin = 0
+mol.build()
+
+# ==========================================
+# 2. ENVIRONMENT SETUP
+#    PMMA-like ddCOSMO, matching the Coumarin solvent script style
+# ==========================================
+environments = [
+    ("PMMA Matrix", 3.0),
+    # Uncomment this if you also want a water comparison like the Coumarin script:
+    # ("Water", 78.35),
+]
+
+# ==========================================
+# Helper: print dominant TDA orbital transitions
+# ==========================================
+def dominant_tda_transitions(td, root_index, max_terms=5):
+    """Return a compact string of the largest occupied -> virtual TDA amplitudes."""
+    mo_occ = td._scf.mo_occ
+    occ_indices = np.where(mo_occ > 0)[0]
+    vir_indices = np.where(mo_occ == 0)[0]
+
+    # For TDA, td.xy[root] is generally (X, Y), with Y absent/zero depending on PySCF version.
+    xy_root = td.xy[root_index]
+    X = xy_root[0] if isinstance(xy_root, (tuple, list)) else xy_root
+    weights = np.abs(X) ** 2
+    norm = np.sum(weights)
+    if norm <= 0:
+        return "unavailable"
+
+    flat_order = np.argsort(weights.ravel())[::-1]
+    terms = []
+    for flat_idx in flat_order[:max_terms]:
+        i_occ, a_vir = np.unravel_index(flat_idx, weights.shape)
+        percent = 100.0 * weights[i_occ, a_vir] / norm
+        # +1 converts zero-indexed Python MO numbering to normal chemistry-style numbering.
+        occ_mo = occ_indices[i_occ] + 1
+        vir_mo = vir_indices[a_vir] + 1
+        terms.append(f"{occ_mo}->{vir_mo} ({percent:.1f}%)")
+    return "; ".join(terms)
+
+# ==========================================
+# 3. LOOP THROUGH ENVIRONMENTS
+# ==========================================
+for env_name, eps_value in environments:
+    start_time = time.time()
+
+    print("\n" + "=" * 90)
+    print(f"   STARTING NBD-AMINE CALCULATION: {env_name.upper()} (ddCOSMO eps = {eps_value})")
+    print("=" * 90)
+
+    # --- A. Ground State SCF with ddCOSMO ---
+    print("\n--- Starting Ground State B3LYP/ddCOSMO SCF ---")
+    mf = scf.RKS(mol)
+    mf.xc = 'b3lyp'
+    mf.max_cycle = 100
+    mf.conv_tol = 1e-9
+
+    # Activate ddCOSMO and set the static dielectric constant.
+    mf = mf.ddCOSMO()
+    mf.with_solvent.eps = eps_value
+    mf.kernel()
+
+    if not mf.converged:
+        print("WARNING: SCF did not converge. TDDFT results may not be reliable.")
+
+    # --- B. TD-DFT / TDA Calculation ---
+    print(f"\n--- Running TDA-TDDFT for {env_name} ---")
+    td = tdscf.TDA(mf)
+    td.nroots = 10
+    td.kernel()
+
+    # --- C. Extract Transition Properties ---
+    tdms = td.transition_dipole()
+
+    print("\n" + "-" * 140)
+    print(f" FINAL RESULTS: NBD-AMINE IN {env_name.upper()} ")
+    print("-" * 140)
+    print(
+        f"{'State':<8} {'Energy (eV)':<13} {'Wavelength (nm)':<16} "
+        f"{'mu_x':<11} {'mu_y':<11} {'mu_z':<11} {'|mu| (a.u.)':<13} {'f':<12} Dominant TDA transitions"
+    )
+    print("-" * 140)
+
+    for i in range(td.nroots):
+        tx, ty, tz = tdms[i]
+        mu_mag = float(np.sqrt(tx**2 + ty**2 + tz**2))
+        energy_ha = float(td.e[i])
+        energy_ev = energy_ha * HARTREE_TO_EV
+        wavelength_nm = EV_NM / energy_ev
+        oscillator_strength = (2.0 / 3.0) * energy_ha * (mu_mag ** 2)
+        dominant = dominant_tda_transitions(td, i, max_terms=3)
+
+        print(
+            f"S{i+1:<7} {energy_ev:<13.4f} {wavelength_nm:<16.2f} "
+            f"{tx:<11.5f} {ty:<11.5f} {tz:<11.5f} {mu_mag:<13.5f} "
+            f"{oscillator_strength:<12.6g} {dominant}"
+        )
+
+    elapsed = time.time() - start_time
+    print("-" * 140)
+    print(f"Elapsed wall time for {env_name}: {elapsed/60:.2f} minutes")
+    print("-" * 140 + "\n")
+#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='n0034.mhg0', release='4.18.0-553.58.1.el8_10.x86_64', version='#1 SMP Thu Jun 26 15:50:39 UTC 2025', machine='x86_64')  Threads 8
+Python 3.10.20 (main, Mar 11 2026, 17:46:40) [GCC 14.3.0]
+numpy 2.2.6  scipy 1.15.3  h5py 3.16.0
+Date: Mon May 11 23:17:33 2026
+PySCF version 2.13.0
+PySCF path  /global/home/users/vaibhavvaiyakarnam/.local/lib/python3.10/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 17
+[INPUT] num. electrons = 92
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 C     -2.995548460000   1.491847130000   0.069842850000 AA   -5.660766182263   2.819182495418   0.131983858259 Bohr   0.0
+[INPUT]  2 C     -3.089155560000   0.078625340000   0.101458600000 AA   -5.837657964577   0.148580359051   0.191728966982 Bohr   0.0
+[INPUT]  3 C     -1.798155820000   2.178098990000   0.058261520000 AA   -3.398022029093   4.116010563292   0.110098316401 Bohr   0.0
+[INPUT]  4 C     -0.589830220000   1.410491770000   0.079665050000 AA   -1.114617575792   2.665443146253   0.150545126200 Bohr   0.0
+[INPUT]  5 C     -1.952913410000  -0.725910270000   0.123254000000 AA   -3.690471489890  -1.371771601309   0.232916303757 Bohr   0.0
+[INPUT]  6 C     -0.693494210000  -0.022596770000   0.111709800000 AA   -1.310514125872  -0.042701706600   0.211100927430 Bohr   0.0
+[INPUT]  7 N     -1.789043080000   3.631358730000   0.025206910000 AA   -3.380801446248   6.862273459748   0.047634156347 Bohr   0.0
+[INPUT]  8 N     -1.951504610000  -2.079864120000   0.153601250000 AA   -3.687809243726  -3.930373563110   0.290264294891 Bohr   0.0
+[INPUT]  9 N      0.698063020000   1.726297850000   0.077031270000 AA    1.319147925487   3.262230145925   0.145568003327 Bohr   0.0
+[INPUT] 10 N      0.516330050000  -0.545665760000   0.127806840000 AA    0.975722384383  -1.031158841953   0.241519924446 Bohr   0.0
+[INPUT] 11 O      1.351577920000   0.520207570000   0.106655450000 AA    2.554112104809   0.983049835226   0.201549590192 Bohr   0.0
+[INPUT] 12 O     -2.873564200000   4.212731200000   0.008563590000 AA   -5.430249339355   7.960908204410   0.016182839743 Bohr   0.0
+[INPUT] 13 O     -0.692435070000   4.180382720000   0.015900570000 AA   -1.308512641344   7.899778436664   0.030047722524 Bohr   0.0
+[INPUT] 14 H     -3.906242080000   2.091096500000   0.053288040000 AA   -7.381727707451   3.951599685037   0.100699801315 Bohr   0.0
+[INPUT] 15 H     -4.077823490000  -0.383619360000   0.108606110000 AA   -7.705969580418  -0.724935526481   0.205235803354 Bohr   0.0
+[INPUT] 16 H     -2.815698350000  -2.602704780000   0.162409870000 AA   -5.320898730890  -4.918399217296   0.306910174226 Bohr   0.0
+[INPUT] 17 H     -1.075204650000  -2.583480580000   0.167776060000 AA   -2.031842316359  -4.882070744332   0.317050803659 Bohr   0.0
+
+nuclear repulsion = 770.123852130282
+number of shells = 116
+number of NR pGTOs = 431
+number of NR cGTOs = 254
+basis = 6-31+G**
+ecp = {}
+CPU time:         2.36
+
+==========================================================================================
+   STARTING NBD-AMINE CALCULATION: PMMA MATRIX (ddCOSMO eps = 3.0)
+==========================================================================================
+
+--- Starting Ground State B3LYP/ddCOSMO SCF ---
+
+
+******** <class 'pyscf.solvent._attach_solvent.ddCOSMORKS'> ********
+method = ddCOSMORKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-09
+SCF conv_tol_grad = None
+SCF max_cycles = 100
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpsnim0ckj
+max_memory 4000 MB (current use 106 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x15271eef3880>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x15271eef2290>
+small_rho_cutoff = 0
+******** <class 'pyscf.solvent.ddcosmo.ddCOSMO'> ********
+lebedev_order = 17 (110 grids per sphere)
+lmax = 6
+eta = 0.1
+eps = 3.0
+frozen = False
+equilibrium_solvation = False
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x15271eef3880>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x15271eef2290>
+Set gradient conv threshold to 3.16228e-05
+Initial guess from minao.
+tot grids = 221800
+tot grids = 221794
+ddCOSMO E_diel = -8.75808953186257e-05
+Solvent Energy = -8.75808953186257e-05
+init E= -678.303344909113
+
+WARN: 2 small eigenvectors of overlap matrix removed because of linear dependency between AOs.
+
+
+  HOMO = -0.235221151529529  LUMO = -0.142629014879895
+ddCOSMO E_diel = -0.029995811880336
+Solvent Energy = -0.029995811880336
+cycle= 1 E= -675.299285601704  delta_E=    3  |g|= 1.19  |ddm|= 65.6
+  HOMO = -0.182470966630878  LUMO = -0.128539312944668
+ddCOSMO E_diel = -0.0127565387181743
+Solvent Energy = -0.0127565387181743
+cycle= 2 E= -674.64914010296  delta_E= 0.65  |g|= 2.25  |ddm|= 8.53
+  HOMO = -0.235903461890898  LUMO = -0.116935842808195
+ddCOSMO E_diel = -0.0150844676502303
+Solvent Energy = -0.0150844676502303
+cycle= 3 E= -675.563356724637  delta_E= -0.914  |g|= 0.161  |ddm|= 5.55
+  HOMO = -0.250172451564842  LUMO = -0.121284982545899
+ddCOSMO E_diel = -0.014290993669624
+Solvent Energy = -0.014290993669624
+cycle= 4 E= -675.56413424257  delta_E= -0.000778  |g|= 0.152  |ddm|= 1.05
+  HOMO = -0.246027509668105  LUMO = -0.121071026804005
+ddCOSMO E_diel = -0.0149319754129413
+Solvent Energy = -0.0149319754129413
+cycle= 5 E= -675.569419428428  delta_E= -0.00529  |g|= 0.0392  |ddm|= 0.452
+  HOMO = -0.244634409126489  LUMO = -0.119893026207108
+ddCOSMO E_diel = -0.0146330111708005
+Solvent Energy = -0.0146330111708005
+cycle= 6 E= -675.569685687888  delta_E= -0.000266  |g|= 0.0145  |ddm|= 0.139
+  HOMO = -0.24453348171625  LUMO = -0.119508330936833
+ddCOSMO E_diel = -0.0147007783437158
+Solvent Energy = -0.0147007783437158
+cycle= 7 E= -675.569726236301  delta_E= -4.05e-05  |g|= 0.00547  |ddm|= 0.0766
+  HOMO = -0.244681365417566  LUMO = -0.119576746723222
+ddCOSMO E_diel = -0.0146997862221835
+Solvent Energy = -0.0146997862221835
+cycle= 8 E= -675.569732050398  delta_E= -5.81e-06  |g|= 0.00179  |ddm|= 0.0164
+  HOMO = -0.244750198950209  LUMO = -0.119623652413932
+ddCOSMO E_diel = -0.0146756480842151
+Solvent Energy = -0.0146756480842151
+cycle= 9 E= -675.569732588213  delta_E= -5.38e-07  |g|= 0.000814  |ddm|= 0.0085
+  HOMO = -0.244732649347351  LUMO = -0.119623071342929
+ddCOSMO E_diel = -0.0146885197603703
+Solvent Energy = -0.0146885197603703
+cycle= 10 E= -675.569732724515  delta_E= -1.36e-07  |g|= 0.00027  |ddm|= 0.00318
+  HOMO = -0.244724717284691  LUMO = -0.119610551513079
+ddCOSMO E_diel = -0.0146836065889729
+Solvent Energy = -0.0146836065889729
+cycle= 11 E= -675.56973273939  delta_E= -1.49e-08  |g|= 0.000131  |ddm|= 0.00115
+  HOMO = -0.244723079169475  LUMO = -0.119606452590249
+ddCOSMO E_diel = -0.0146851473410273
+Solvent Energy = -0.0146851473410273
+cycle= 12 E= -675.569732742389  delta_E= -3e-09  |g|= 6.48e-05  |ddm|= 0.000435
+  HOMO = -0.244722661580451  LUMO = -0.119608288912639
+ddCOSMO E_diel = -0.0146847471814804
+Solvent Energy = -0.0146847471814804
+cycle= 13 E= -675.569732743204  delta_E= -8.15e-10  |g|= 2.62e-05  |ddm|= 0.000238
+  HOMO = -0.244725120389692  LUMO = -0.119608581833498
+ddCOSMO E_diel = -0.0146848308372692
+Solvent Energy = -0.0146848308372692
+Extra cycle  E= -675.569732742621  delta_E= 5.83e-10  |g|= 5.67e-05  |ddm|= 0.000237
+converged SCF energy = -675.569732742621
+
+--- Running TDA-TDDFT for PMMA Matrix ---
+
+
+******** <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'> for <class 'pyscf.solvent._attach_solvent.ddCOSMORKS'> ********
+nstates = 10 singlet
+deg_eia_thresh = 1.000e-03
+wfnsym = None
+conv_tol = 1e-05
+eigh lindep = 1e-12
+eigh level_shift = 0
+eigh max_cycle = 100
+chkfile = /tmp/tmpsnim0ckj
+max_memory 4000 MB (current use 291 MB)
+
+
+Solvent model for TDDFT:
+******** <class 'pyscf.solvent.ddcosmo.ddCOSMO'> ********
+lebedev_order = 17 (110 grids per sphere)
+lmax = 6
+eta = 0.1
+eps = 1.78
+frozen = False
+equilibrium_solvation = None
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x15271eef3880>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x15271eef2290>
+TDDFT non-equilibrium solvation with eps=1.78
+Excitation energies (eV)
+[3.25604212 3.80022669 4.07761756 4.30201353 4.79711879 4.81955101
+ 5.13370977 5.18913438 5.3788544  5.40229156]
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+ FINAL RESULTS: NBD-AMINE IN PMMA MATRIX 
+--------------------------------------------------------------------------------------------------------------------------------------------
+State    Energy (eV)   Wavelength (nm)  mu_x        mu_y        mu_z        |mu| (a.u.)   f            Dominant TDA transitions
+--------------------------------------------------------------------------------------------------------------------------------------------
+S1       3.2560        380.78           -0.07971    -2.13493    0.04797     2.13696       0.364284     46->47 (89.8%); 46->48 (4.6%); 46->51 (1.3%)
+S2       3.8002        326.25           0.00012     -0.00011    -0.00016    0.00023       4.8146e-09   45->47 (79.2%); 45->48 (19.3%); 45->51 (0.7%)
+S3       4.0776        304.06           -0.09765    1.71435     -0.03930    1.71758       0.294711     46->48 (92.0%); 46->47 (4.5%); 41->47 (0.7%)
+S4       4.3020        288.20           0.00028     -0.00098    -0.06570    0.06571       0.000455095  43->47 (81.7%); 43->48 (16.3%); 43->51 (0.6%)
+S5       4.7971        258.46           -0.40189    -0.12602    0.00143     0.42119       0.0208493    44->47 (79.6%); 46->49 (14.8%); 42->48 (1.4%)
+S6       4.8196        257.25           0.00003     0.00006     0.00946     0.00946       1.05608e-05  45->48 (65.3%); 45->47 (16.9%); 40->47 (13.8%)
+S7       5.1337        241.51           0.30410     0.19131     -0.00339    0.35929       0.016236     42->47 (78.7%); 46->49 (6.9%); 42->48 (5.6%)
+S8       5.1891        238.93           0.00060     0.00065     0.00956     0.00960       1.17213e-05  40->47 (63.1%); 43->48 (13.0%); 45->48 (12.9%)
+S9       5.3789        230.50           0.00042     -0.00106    -0.05613    0.05614       0.000415313  43->48 (62.5%); 40->47 (17.7%); 43->47 (13.0%)
+S10      5.4023        229.50           0.17383     0.25544     -0.00506    0.30902       0.0126385    41->47 (82.4%); 46->49 (3.8%); 41->48 (3.7%)
+--------------------------------------------------------------------------------------------------------------------------------------------
+Elapsed wall time for PMMA Matrix: 24.75 minutes
+--------------------------------------------------------------------------------------------------------------------------------------------
+
