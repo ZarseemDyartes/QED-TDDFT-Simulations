@@ -1,4 +1,4 @@
-This is a GitHub repository of data testing QED-TDDFT implementations in Python on two dye molecules, Coumarin 343 and NBD-PC. 
+This is a GitHub repository of data from testing QED-TDDFT implementations in Python on two dye molecules, Coumarin 343 and NBD-PC. 
 
 For more information on the project, please see the uploaded paper and presentation.  
 
