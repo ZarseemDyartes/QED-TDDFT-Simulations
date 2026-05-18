@@ -1,0 +1,669 @@
+#INFO: **** input file is /global/scratch/users/vaibhavvaiyakarnam/bdp_tddft/coumarin343_polscan.py ****
+import numpy
+from pyscf import gto, scf, tdscf
+import qed
+
+# ==========================================
+# 1. MOLECULE SETUP: Coumarin 343
+# ==========================================
+mol = gto.Mole()
+mol.verbose = 4
+mol.atom = '''
+C  -5.585634936212   2.449611799944  -0.108879421850
+C  -6.783460232473   1.586846081547  -0.515400637148
+C  -4.295306387782   1.650195044050  -0.034596819912
+C  -3.077403775857   2.317183411925   0.042735644801
+C  -1.850471879212   1.640828521538   0.118599860258
+C  -1.885276849692   0.229925444899   0.111609356109
+C  -4.301265651884   0.225391168137  -0.007587868323
+C  -3.074870898092  -0.493695488375   0.063321383699
+C  -6.746298487741   0.251557680893   0.212727114100
+N  -5.508830459103  -0.467567187524  -0.073042510076
+C  -5.528480365905  -1.877300709293   0.301621979384
+C  -4.360364524784  -2.629461557838  -0.322180994132
+C  -3.028912808607  -2.006941737028   0.097386940415
+C  -0.569775809633   2.290102704164   0.269113407765
+C   0.586007291879   1.590318188058   0.171078504617
+C   0.473916344833   0.128710416213  -0.209792459188
+O  -0.722046270754  -0.486461880561   0.260182635294
+C   1.884577981730   2.301081742180   0.305750034224
+O   1.987499794631   3.491732063241   0.493258110712
+O   3.019016769256   1.548482530893   0.190269460062
+H  -5.780679370150   2.924105424196   0.870145478067
+H  -5.460796101992   3.275724099954  -0.828107446884
+H  -6.764746928343   1.401071262084  -1.602501243836
+H  -7.730099663336   2.100509577133  -0.285765836484
+H  -3.072119697350   3.411319787037   0.046433034007
+H  -7.582692886718  -0.385707935957  -0.114502080531
+H  -6.871049780199   0.408397357128   1.307170776071
+H  -6.480254127235  -2.297290952574  -0.060014051477
+H  -5.524872528369  -1.999237274547   1.407333011361
+H  -4.466488540970  -2.601859593502  -1.420123665609
+H  -4.401970754761  -3.685791564498  -0.014625596849
+H  -2.213526307804  -2.361423254384  -0.550916933848
+H  -2.760131388788  -2.341661613720   1.116514988635
+H  -0.521913958251   3.362458487980   0.472863665495
+H   1.274113029748  -0.480261905448   0.246490484170
+H   0.555198862707   0.000417370408  -1.311885932202
+H   2.794749546669   0.610277343832   0.101979889355
+'''
+mol.basis = '6-31+G**'
+mol.build()
+
+# ==========================================
+# 2. GROUND STATE SCF
+# ==========================================
+print("\n--- Starting Ground State SCF ---")
+mf = scf.RKS(mol).density_fit() 
+mf.xc = "b3lyp"
+mf = mf.ddCOSMO()            
+mf.with_solvent.eps = 3.0    
+mf.kernel()
+
+# ==========================================
+# 3. PRE-SCAN: Find Resonance & Dipole Direction
+# ==========================================
+print("\n--- Running Standard TD-DFT to find Resonance and Dipole ---")
+td_std = tdscf.TDA(mf)
+td_std.nroots = 5  
+td_std.kernel()
+
+s1_energy_au = td_std.e[0]
+tdm_vector = td_std.transition_dipole()[0]
+tdm_magnitude = numpy.linalg.norm(tdm_vector)
+tdm_direction = tdm_vector / tdm_magnitude
+
+print(f"\n>> ALIGNMENT RESULTS <<")
+print(f"Resonant Cavity Freq : {s1_energy_au:.6f} a.u.")
+print(f"TDM Direction (Unit) : [{tdm_direction[0]:.4f}, {tdm_direction[1]:.4f}, {tdm_direction[2]:.4f}]")
+
+cavity_freq = numpy.asarray([s1_energy_au])
+
+# ==========================================
+# 4. QED POLARIZATION ROTATION SCAN
+# ==========================================
+print("\n--- Starting QED Polarization Rotation Scan ---")
+
+fixed_coupling = 0.01
+
+# Scan from 0 degrees to 90 degrees in increments of 10
+angles_deg = numpy.arange(0, 91, 10)
+
+for angle in angles_deg:
+    print(f"\n========================================")
+    print(f" RUNNING MISALIGNMENT ANGLE: {angle}°")
+    print(f"========================================")
+    
+    # Convert degrees to radians for the math
+    theta = numpy.radians(angle)
+    
+    # Create a rotation matrix around the Z-axis
+    c, s = numpy.cos(theta), numpy.sin(theta)
+    rotation_matrix = numpy.array([
+        [c, -s, 0],
+        [s,  c, 0],
+        [0,  0, 1]
+    ])
+    
+    # Rotate the unit vector by theta
+    rotated_direction = rotation_matrix.dot(tdm_direction)
+    
+    # Apply the fixed coupling strength to the newly rotated vector
+    scaled_cavity_mode = fixed_coupling * rotated_direction
+    cavity_mode = numpy.asarray([scaled_cavity_mode])
+
+    print(f"Rotated Cavity Mode Vector : [{cavity_mode[0][0]:.5f}, {cavity_mode[0][1]:.5f}, {cavity_mode[0][2]:.5f}]")
+
+    # TDA-JC Setup 
+    cav_model = qed.JC(mf, cavity_mode=cavity_mode, cavity_freq=cavity_freq)
+    td_qed    = qed.TDA(mf, cav_obj=cav_model)
+    td_qed.nroots = 5  
+    
+    # Run QED TD-DFT
+    td_qed.kernel()#INFO: ******************** input file end ********************
+
+
+System: uname_result(system='Linux', node='n0030.mhg0', release='4.18.0-553.58.1.el8_10.x86_64', version='#1 SMP Thu Jun 26 15:50:39 UTC 2025', machine='x86_64')  Threads 8
+Python 3.10.20 (main, Mar 11 2026, 17:46:40) [GCC 14.3.0]
+numpy 2.2.6  scipy 1.15.3  h5py 3.16.0
+Date: Sat May  2 13:35:32 2026
+PySCF version 2.13.0
+PySCF path  /global/home/users/vaibhavvaiyakarnam/.local/lib/python3.10/site-packages/pyscf
+
+[CONFIG] conf_file None
+[INPUT] verbose = 4
+[INPUT] num. atoms = 37
+[INPUT] num. electrons = 144
+[INPUT] charge = 0
+[INPUT] spin (= nelec alpha-beta = 2S) = 0
+[INPUT] symmetry False subgroup None
+[INPUT] Mole.unit = angstrom
+[INPUT] Symbol           X                Y                Z      unit          X                Y                Z       unit  Magmom
+[INPUT]  1 C     -5.585634936212   2.449611799944  -0.108879421850 AA  -10.555320261243   4.629095413397  -0.205752287897 Bohr   0.0
+[INPUT]  2 C     -6.783460232473   1.586846081547  -0.515400637148 AA  -12.818882016252   2.998704495963  -0.973966048636 Bohr   0.0
+[INPUT]  3 C     -4.295306387782   1.650195044050  -0.034596819912 AA   -8.116952694003   3.118416685369  -0.065378514415 Bohr   0.0
+[INPUT]  4 C     -3.077403775857   2.317183411925   0.042735644801 AA   -5.815450311072   4.378842028923   0.080758664431 Bohr   0.0
+[INPUT]  5 C     -1.850471879212   1.640828521538   0.118599860258 AA   -3.496885052920   3.100716523082   0.224121254299 Bohr   0.0
+[INPUT]  6 C     -1.885276849692   0.229925444899   0.111609356109 AA   -3.562656914901   0.434496119928   0.210911115985 Bohr   0.0
+[INPUT]  7 C     -4.301265651884   0.225391168137  -0.007587868323 AA   -8.128214071060   0.425927578675  -0.014338993000 Bohr   0.0
+[INPUT]  8 C     -3.074870898092  -0.493695488375   0.063321383699 AA   -5.810663865789  -0.932949261962   0.119660073020 Bohr   0.0
+[INPUT]  9 C     -6.746298487741   0.251557680893   0.212727114100 AA  -12.748656496398   0.475375121419   0.401995984918 Bohr   0.0
+[INPUT] 10 N     -5.508830459103  -0.467567187524  -0.073042510076 AA  -10.410180834367  -0.883573929254  -0.138030339494 Bohr   0.0
+[INPUT] 11 C     -5.528480365905  -1.877300709293   0.301621979384 AA  -10.447313776596  -3.547584194016   0.569982934185 Bohr   0.0
+[INPUT] 12 C     -4.360364524784  -2.629461557838  -0.322180994132 AA   -8.239894755111  -4.968962199386  -0.608833841450 Bohr   0.0
+[INPUT] 13 C     -3.028912808607  -2.006941737028   0.097386940415 AA   -5.723815663454  -3.792570230942   0.184034645494 Bohr   0.0
+[INPUT] 14 C     -0.569775809633   2.290102704164   0.269113407765 AA   -1.076720232609   4.327666907996   0.508550637124 Bohr   0.0
+[INPUT] 15 C      0.586007291879   1.590318188058   0.171078504617 AA    1.107393288649   3.005265826344   0.323291519526 Bohr   0.0
+[INPUT] 16 C      0.473916344833   0.128710416213  -0.209792459188 AA    0.895572097689   0.243227436021  -0.396450290864 Bohr   0.0
+[INPUT] 17 O     -0.722046270754  -0.486461880561   0.260182635294 AA   -1.364469700989  -0.919279724301   0.491673923073 Bohr   0.0
+[INPUT] 18 C      1.884577981730   2.301081742180   0.305750034224 AA    3.561336245855   4.348414282957   0.577783827260 Bohr   0.0
+[INPUT] 19 O      1.987499794631   3.491732063241   0.493258110712 AA    3.755830284482   6.598417299888   0.932122737966 Bohr   0.0
+[INPUT] 20 O      3.019016769256   1.548482530893   0.190269460062 AA    5.705114859363   2.926207892061   0.359557169386 Bohr   0.0
+[INPUT] 21 H     -5.780679370150   2.924105424196   0.870145478067 AA  -10.923900823507   5.525758411086   1.644336642075 Bohr   0.0
+[INPUT] 22 H     -5.460796101992   3.275724099954  -0.828107446884 AA  -10.319409054857   6.190221408550  -1.564896276324 Bohr   0.0
+[INPUT] 23 H     -6.764746928343   1.401071262084  -1.602501243836 AA  -12.783518996561   2.647640966337  -3.028288465125 Bohr   0.0
+[INPUT] 24 H     -7.730099663336   2.100509577133  -0.285765836484 AA  -14.607771279298   3.969387822807  -0.540019166712 Bohr   0.0
+[INPUT] 25 H     -3.072119697350   3.411319787037   0.046433034007 AA   -5.805464849873   6.446460120810   0.087745717406 Bohr   0.0
+[INPUT] 26 H     -7.582692886718  -0.385707935957  -0.114502080531 AA  -14.329212842585  -0.728882363030  -0.216377572896 Bohr   0.0
+[INPUT] 27 H     -6.871049780199   0.408397357128   1.307170776071 AA  -12.984402272829   0.771759154968   2.470194764809 Bohr   0.0
+[INPUT] 28 H     -6.480254127235  -2.297290952574  -0.060014051477 AA  -12.245905518057  -4.341250728806  -0.113410120917 Bohr   0.0
+[INPUT] 29 H     -5.524872528369  -1.999237274547   1.407333011361 AA  -10.440495951751  -3.778010906916   2.659473957532 Bohr   0.0
+[INPUT] 30 H     -4.466488540970  -2.601859593502  -1.420123665609 AA   -8.440440080941  -4.916802046291  -2.683644791014 Bohr   0.0
+[INPUT] 31 H     -4.401970754761  -3.685791564498  -0.014625596849 AA   -8.318519134843  -6.965136609133  -0.027638372453 Bohr   0.0
+[INPUT] 32 H     -2.213526307804  -2.361423254384  -0.550916933848 AA   -4.182958491269  -4.462443214965  -1.041082122358 Bohr   0.0
+[INPUT] 33 H     -2.760131388788  -2.341661613720   1.116514988635 AA   -5.215892392625  -4.425099126338   2.109907542492 Bohr   0.0
+[INPUT] 34 H     -0.521913958251   3.362458487980   0.472863665495 AA   -0.986274441682   6.354125647501   0.893582822043 Bohr   0.0
+[INPUT] 35 H      1.274113029748  -0.480261905448   0.246490484170 AA    2.407724677964  -0.907563469358   0.465799507393 Bohr   0.0
+[INPUT] 36 H      0.555198862707   0.000417370408  -1.311885932202 AA    1.049173795186   0.000788715764  -2.479105118532 Bohr   0.0
+[INPUT] 37 H      2.794749546669   0.610277343832   0.101979889355 AA    5.281311229957   1.153257039870   0.192714061094 Bohr   0.0
+
+nuclear repulsion = 1537.08250637724
+number of shells = 211
+number of NR pGTOs = 739
+number of NR cGTOs = 445
+basis = 6-31+G**
+ecp = {}
+CPU time:         2.47
+
+--- Starting Ground State SCF ---
+
+
+******** <class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+method = ddCOSMODFRKS
+initial guess = minao
+damping factor = 0
+level_shift factor = 0
+DIIS = <class 'pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-09
+SCF conv_tol_grad = None
+SCF max_cycles = 50
+direct_scf = False
+chkfile to save SCF result = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 107 MB)
+XC library pyscf.dft.libxc version 7.0.0
+    S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1–5 (2018)
+XC functionals = b3lyp
+    P. J. Stephens, F. J. Devlin, C. F. Chabalowski, and M. J. Frisch.,  J. Phys. Chem. 98, 11623 (1994)
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x145cdd623eb0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x145cdd6228c0>
+small_rho_cutoff = 0
+******** <class 'pyscf.solvent.ddcosmo.ddCOSMO'> ********
+lebedev_order = 17 (110 grids per sphere)
+lmax = 6
+eta = 0.1
+eps = 3.0
+frozen = False
+equilibrium_solvation = False
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x145cdd623eb0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x145cdd6228c0>
+Set gradient conv threshold to 3.16228e-05
+Initial guess from minao.
+tot grids = 448776
+******** <class 'pyscf.df.df.DF'> ********
+auxbasis = None
+max_memory = 4000
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for O 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for H 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for N 6-31+G**
+Default auxbasis heavy-aug-cc-pvdz-jkfit is used for C 6-31+G**
+tot grids = 448772
+ddCOSMO E_diel = -0.000245424516650902
+Solvent Energy = -0.000245424516650902
+init E= -903.802508361293
+
+WARN: 5 small eigenvectors of overlap matrix removed because of linear dependency between AOs.
+
+
+  HOMO = -0.219213742184599  LUMO = -0.128169510773336
+ddCOSMO E_diel = -0.0262531409456623
+Solvent Energy = -0.0262531409456623
+cycle= 1 E= -900.155628859796  delta_E= 3.65  |g|= 1.14  |ddm|=  220
+  HOMO = -0.124077505475119  LUMO = -0.0403999697757396
+ddCOSMO E_diel = -0.00770720523488586
+Solvent Energy = -0.00770720523488586
+cycle= 2 E= -899.585316100398  delta_E= 0.57  |g|= 2.05  |ddm|= 25.1
+  HOMO = -0.18125496227395  LUMO = -0.0573807048548103
+ddCOSMO E_diel = -0.0144722398287805
+Solvent Energy = -0.0144722398287805
+cycle= 3 E= -900.395735264711  delta_E= -0.81  |g|= 0.356  |ddm|= 15.9
+  HOMO = -0.195521390297815  LUMO = -0.0701729458293845
+ddCOSMO E_diel = -0.0118769166485598
+Solvent Energy = -0.0118769166485598
+cycle= 4 E= -900.420181120779  delta_E= -0.0244  |g|= 0.122  |ddm|= 4.71
+  HOMO = -0.198887703554867  LUMO = -0.0724572659696041
+ddCOSMO E_diel = -0.012300840328934
+Solvent Energy = -0.012300840328934
+cycle= 5 E= -900.422579598008  delta_E= -0.0024  |g|= 0.0428  |ddm|= 0.675
+  HOMO = -0.195570463112781  LUMO = -0.0693248721642878
+ddCOSMO E_diel = -0.0121260355602024
+Solvent Energy = -0.0121260355602024
+cycle= 6 E= -900.422983337705  delta_E= -0.000404  |g|= 0.00956  |ddm|= 0.492
+  HOMO = -0.195710607602794  LUMO = -0.0692556366770263
+ddCOSMO E_diel = -0.012110378362511
+Solvent Energy = -0.012110378362511
+cycle= 7 E= -900.423001541157  delta_E= -1.82e-05  |g|= 0.00333  |ddm|= 0.079
+  HOMO = -0.195803403844224  LUMO = -0.0693817146949014
+ddCOSMO E_diel = -0.0121260946929501
+Solvent Energy = -0.0121260946929501
+cycle= 8 E= -900.423004042274  delta_E= -2.5e-06  |g|= 0.00105  |ddm|= 0.0303
+  HOMO = -0.195811425643166  LUMO = -0.0693810583246424
+ddCOSMO E_diel = -0.0121272762708182
+Solvent Energy = -0.0121272762708182
+cycle= 9 E= -900.423004283927  delta_E= -2.42e-07  |g|= 0.000404  |ddm|= 0.0085
+  HOMO = -0.195791648393461  LUMO = -0.0693761958755612
+ddCOSMO E_diel = -0.012127966433522
+Solvent Energy = -0.012127966433522
+cycle= 10 E= -900.423004321873  delta_E= -3.79e-08  |g|= 0.000137  |ddm|= 0.00501
+  HOMO = -0.195798781554676  LUMO = -0.0693702605896198
+ddCOSMO E_diel = -0.012127329114587
+Solvent Energy = -0.012127329114587
+cycle= 11 E= -900.423004325889  delta_E= -4.02e-09  |g|= 8.06e-05  |ddm|= 0.00183
+  HOMO = -0.195796430665701  LUMO = -0.0693719565350781
+ddCOSMO E_diel = -0.0121272604051777
+Solvent Energy = -0.0121272604051777
+cycle= 12 E= -900.423004327406  delta_E= -1.52e-09  |g|= 1.35e-05  |ddm|= 0.000786
+  HOMO = -0.195796697570445  LUMO = -0.0693722157439844
+ddCOSMO E_diel = -0.0121271840118825
+Solvent Energy = -0.0121271840118825
+cycle= 13 E= -900.423004327435  delta_E= -2.86e-11  |g|= 1.15e-05  |ddm|= 0.000203
+  HOMO = -0.195796009446298  LUMO = -0.0693719787250671
+ddCOSMO E_diel = -0.0121272967447228
+Solvent Energy = -0.0121272967447228
+Extra cycle  E= -900.423004327372  delta_E= 6.32e-11  |g|= 2.01e-05  |ddm|= 0.000167
+converged SCF energy = -900.423004327372
+
+--- Running Standard TD-DFT to find Resonance and Dipole ---
+
+
+******** <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'> for <class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+nstates = 5 singlet
+deg_eia_thresh = 1.000e-03
+wfnsym = None
+conv_tol = 1e-05
+eigh lindep = 1e-12
+eigh level_shift = 0
+eigh max_cycle = 100
+chkfile = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2094 MB)
+
+
+Solvent model for TDDFT:
+******** <class 'pyscf.solvent.ddcosmo.ddCOSMO'> ********
+lebedev_order = 17 (110 grids per sphere)
+lmax = 6
+eta = 0.1
+eps = 1.78
+frozen = False
+equilibrium_solvation = None
+radial grids: 
+    Treutler-Ahlrichs [JCP 102, 346 (1995); DOI:10.1063/1.469408] (M4) radial grids
+    
+becke partition: Becke, JCP 88, 2547 (1988); DOI:10.1063/1.454033
+pruning grids: <function nwchem_prune at 0x145cdd623eb0>
+grids dens level: 3
+symmetrized grids: False
+atomic radii adjust function: <function treutler_atomic_radii_adjust at 0x145cdd6228c0>
+TDDFT non-equilibrium solvation with eps=1.78
+Excitation energies (eV)
+[3.27610046 3.70574011 4.37692284 4.53013301 4.69751831]
+
+>> ALIGNMENT RESULTS <<
+Resonant Cavity Freq : 0.120394 a.u.
+TDM Direction (Unit) : [-0.9351, -0.3543, -0.0090]
+
+--- Starting QED Polarization Rotation Scan ---
+
+========================================
+ RUNNING MISALIGNMENT ANGLE: 0°
+========================================
+Rotated Cavity Mode Vector : [-0.00935, -0.00354, -0.00009]
+
+
+******** <class 'qed.tdscf.rhf.TDASym'> from <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'>-<class 'qed.cavity.rhf.RestrictedJaynesCummings'>-<class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+cQED-TDDFT:          Yang, et. al. J. Chem. Phys. 155, 064107 (2021) https://doi.org/10.1063/5.0057542
+Analytical Gradient: Yang, et. al. J. Chem. Phys. 156, 124104 (2022) https://doi.org/10.1063/5.0082386
+nov              = 26496
+nstates          = 5 singlet
+1 cavity mode in the calculation:
+Cavity    1: freq =  0.1204, mode = (-0.0094, -0.0035, -0.0001)
+wfnsym           = None
+conv_tol         = 1e-09
+eigh lindep      = 1e-12
+eigh level_shift = 0
+eigh max_space   = 50
+eigh max_cycle   = 100
+chkfile          = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2191 MB)
+
+
+TDDFT non-equilibrium solvation with eps=1.78
+istate =    0, norms2_elec =  0.4543, norms2_ph =  0.5457
+istate =    1, norms2_elec =  0.5803, norms2_ph =  0.4197
+istate =    2, norms2_elec =  0.9746, norms2_ph =  0.0254
+istate =    3, norms2_elec =  0.9992, norms2_ph =  0.0008
+istate =    4, norms2_elec =  1.0000, norms2_ph =  0.0000
+Excited State energies (eV)
+[3.04090472 3.46190752 3.7157494  4.37778852 4.53013932]
+
+========================================
+ RUNNING MISALIGNMENT ANGLE: 10°
+========================================
+Rotated Cavity Mode Vector : [-0.00859, -0.00511, -0.00009]
+
+
+******** <class 'qed.tdscf.rhf.TDASym'> from <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'>-<class 'qed.cavity.rhf.RestrictedJaynesCummings'>-<class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+cQED-TDDFT:          Yang, et. al. J. Chem. Phys. 155, 064107 (2021) https://doi.org/10.1063/5.0057542
+Analytical Gradient: Yang, et. al. J. Chem. Phys. 156, 124104 (2022) https://doi.org/10.1063/5.0082386
+nov              = 26496
+nstates          = 5 singlet
+1 cavity mode in the calculation:
+Cavity    1: freq =  0.1204, mode = (-0.0086, -0.0051, -0.0001)
+wfnsym           = None
+conv_tol         = 1e-09
+eigh lindep      = 1e-12
+eigh level_shift = 0
+eigh max_space   = 50
+eigh max_cycle   = 100
+chkfile          = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2240 MB)
+
+
+TDDFT non-equilibrium solvation with eps=1.78
+istate =    0, norms2_elec =  0.4553, norms2_ph =  0.5447
+istate =    1, norms2_elec =  0.5759, norms2_ph =  0.4241
+istate =    2, norms2_elec =  0.9771, norms2_ph =  0.0229
+istate =    3, norms2_elec =  0.9996, norms2_ph =  0.0004
+istate =    4, norms2_elec =  1.0000, norms2_ph =  0.0000
+Excited State energies (eV)
+[3.04514328 3.46021483 3.71473067 4.37735832 4.53014357]
+
+========================================
+ RUNNING MISALIGNMENT ANGLE: 20°
+========================================
+Rotated Cavity Mode Vector : [-0.00758, -0.00653, -0.00009]
+
+
+******** <class 'qed.tdscf.rhf.TDASym'> from <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'>-<class 'qed.cavity.rhf.RestrictedJaynesCummings'>-<class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+cQED-TDDFT:          Yang, et. al. J. Chem. Phys. 155, 064107 (2021) https://doi.org/10.1063/5.0057542
+Analytical Gradient: Yang, et. al. J. Chem. Phys. 156, 124104 (2022) https://doi.org/10.1063/5.0082386
+nov              = 26496
+nstates          = 5 singlet
+1 cavity mode in the calculation:
+Cavity    1: freq =  0.1204, mode = (-0.0076, -0.0065, -0.0001)
+wfnsym           = None
+conv_tol         = 1e-09
+eigh lindep      = 1e-12
+eigh level_shift = 0
+eigh max_space   = 50
+eigh max_cycle   = 100
+chkfile          = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2296 MB)
+
+
+TDDFT non-equilibrium solvation with eps=1.78
+istate =    0, norms2_elec =  0.4551, norms2_ph =  0.5449
+istate =    1, norms2_elec =  0.5710, norms2_ph =  0.4290
+istate =    2, norms2_elec =  0.9812, norms2_ph =  0.0188
+istate =    3, norms2_elec =  0.9999, norms2_ph =  0.0001
+istate =    4, norms2_elec =  1.0000, norms2_ph =  0.0000
+Excited State energies (eV)
+[3.05587472 3.45270887 3.71315906 4.37705873 4.53014812]
+
+========================================
+ RUNNING MISALIGNMENT ANGLE: 30°
+========================================
+Rotated Cavity Mode Vector : [-0.00633, -0.00774, -0.00009]
+
+
+******** <class 'qed.tdscf.rhf.TDASym'> from <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'>-<class 'qed.cavity.rhf.RestrictedJaynesCummings'>-<class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+cQED-TDDFT:          Yang, et. al. J. Chem. Phys. 155, 064107 (2021) https://doi.org/10.1063/5.0057542
+Analytical Gradient: Yang, et. al. J. Chem. Phys. 156, 124104 (2022) https://doi.org/10.1063/5.0082386
+nov              = 26496
+nstates          = 5 singlet
+1 cavity mode in the calculation:
+Cavity    1: freq =  0.1204, mode = (-0.0063, -0.0077, -0.0001)
+wfnsym           = None
+conv_tol         = 1e-09
+eigh lindep      = 1e-12
+eigh level_shift = 0
+eigh max_space   = 50
+eigh max_cycle   = 100
+chkfile          = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2255 MB)
+
+
+TDDFT non-equilibrium solvation with eps=1.78
+istate =    0, norms2_elec =  0.4534, norms2_ph =  0.5466
+istate =    1, norms2_elec =  0.5668, norms2_ph =  0.4332
+istate =    2, norms2_elec =  0.9862, norms2_ph =  0.0138
+istate =    3, norms2_elec =  1.0000, norms2_ph =  0.0000
+istate =    4, norms2_elec =  1.0000, norms2_ph =  0.0000
+Excited State energies (eV)
+[3.07268346 3.43934433 3.71129241 4.37692723 4.53015239]
+
+========================================
+ RUNNING MISALIGNMENT ANGLE: 40°
+========================================
+Rotated Cavity Mode Vector : [-0.00489, -0.00872, -0.00009]
+
+
+******** <class 'qed.tdscf.rhf.TDASym'> from <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'>-<class 'qed.cavity.rhf.RestrictedJaynesCummings'>-<class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+cQED-TDDFT:          Yang, et. al. J. Chem. Phys. 155, 064107 (2021) https://doi.org/10.1063/5.0057542
+Analytical Gradient: Yang, et. al. J. Chem. Phys. 156, 124104 (2022) https://doi.org/10.1063/5.0082386
+nov              = 26496
+nstates          = 5 singlet
+1 cavity mode in the calculation:
+Cavity    1: freq =  0.1204, mode = (-0.0049, -0.0087, -0.0001)
+wfnsym           = None
+conv_tol         = 1e-09
+eigh lindep      = 1e-12
+eigh level_shift = 0
+eigh max_space   = 50
+eigh max_cycle   = 100
+chkfile          = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2267 MB)
+
+
+TDDFT non-equilibrium solvation with eps=1.78
+istate =    0, norms2_elec =  0.4495, norms2_ph =  0.5505
+istate =    1, norms2_elec =  0.5651, norms2_ph =  0.4349
+istate =    2, norms2_elec =  0.9911, norms2_ph =  0.0089
+istate =    3, norms2_elec =  0.9999, norms2_ph =  0.0001
+istate =    4, norms2_elec =  1.0000, norms2_ph =  0.0000
+Excited State energies (eV)
+[3.09495467 3.42025503 3.70942053 4.37697908 4.53015587]
+
+========================================
+ RUNNING MISALIGNMENT ANGLE: 50°
+========================================
+Rotated Cavity Mode Vector : [-0.00330, -0.00944, -0.00009]
+
+
+******** <class 'qed.tdscf.rhf.TDASym'> from <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'>-<class 'qed.cavity.rhf.RestrictedJaynesCummings'>-<class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+cQED-TDDFT:          Yang, et. al. J. Chem. Phys. 155, 064107 (2021) https://doi.org/10.1063/5.0057542
+Analytical Gradient: Yang, et. al. J. Chem. Phys. 156, 124104 (2022) https://doi.org/10.1063/5.0082386
+nov              = 26496
+nstates          = 5 singlet
+1 cavity mode in the calculation:
+Cavity    1: freq =  0.1204, mode = (-0.0033, -0.0094, -0.0001)
+wfnsym           = None
+conv_tol         = 1e-09
+eigh lindep      = 1e-12
+eigh level_shift = 0
+eigh max_space   = 50
+eigh max_cycle   = 100
+chkfile          = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2255 MB)
+
+
+TDDFT non-equilibrium solvation with eps=1.78
+istate =    0, norms2_elec =  0.4419, norms2_ph =  0.5581
+istate =    1, norms2_elec =  0.5682, norms2_ph =  0.4318
+istate =    2, norms2_elec =  0.9952, norms2_ph =  0.0048
+istate =    3, norms2_elec =  0.9997, norms2_ph =  0.0003
+istate =    4, norms2_elec =  1.0000, norms2_ph =  0.0000
+Excited State energies (eV)
+[3.12189074 3.3958301  3.70779602 4.37720582 4.53015813]
+
+========================================
+ RUNNING MISALIGNMENT ANGLE: 60°
+========================================
+Rotated Cavity Mode Vector : [-0.00161, -0.00987, -0.00009]
+
+
+******** <class 'qed.tdscf.rhf.TDASym'> from <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'>-<class 'qed.cavity.rhf.RestrictedJaynesCummings'>-<class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+cQED-TDDFT:          Yang, et. al. J. Chem. Phys. 155, 064107 (2021) https://doi.org/10.1063/5.0057542
+Analytical Gradient: Yang, et. al. J. Chem. Phys. 156, 124104 (2022) https://doi.org/10.1063/5.0082386
+nov              = 26496
+nstates          = 5 singlet
+1 cavity mode in the calculation:
+Cavity    1: freq =  0.1204, mode = (-0.0016, -0.0099, -0.0001)
+wfnsym           = None
+conv_tol         = 1e-09
+eigh lindep      = 1e-12
+eigh level_shift = 0
+eigh max_space   = 50
+eigh max_cycle   = 100
+chkfile          = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2266 MB)
+
+
+TDDFT non-equilibrium solvation with eps=1.78
+istate =    0, norms2_elec =  0.4270, norms2_ph =  0.5730
+istate =    1, norms2_elec =  0.5802, norms2_ph =  0.4198
+istate =    2, norms2_elec =  0.9981, norms2_ph =  0.0019
+istate =    3, norms2_elec =  0.9994, norms2_ph =  0.0006
+istate =    4, norms2_elec =  1.0000, norms2_ph =  0.0000
+Excited State energies (eV)
+[3.1525179  3.36676592 3.70659341 4.37757738 4.53015891]
+
+========================================
+ RUNNING MISALIGNMENT ANGLE: 70°
+========================================
+Rotated Cavity Mode Vector : [0.00013, -0.01000, -0.00009]
+
+
+******** <class 'qed.tdscf.rhf.TDASym'> from <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'>-<class 'qed.cavity.rhf.RestrictedJaynesCummings'>-<class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+cQED-TDDFT:          Yang, et. al. J. Chem. Phys. 155, 064107 (2021) https://doi.org/10.1063/5.0057542
+Analytical Gradient: Yang, et. al. J. Chem. Phys. 156, 124104 (2022) https://doi.org/10.1063/5.0082386
+nov              = 26496
+nstates          = 5 singlet
+1 cavity mode in the calculation:
+Cavity    1: freq =  0.1204, mode = ( 0.0001, -0.0100, -0.0001)
+wfnsym           = None
+conv_tol         = 1e-09
+eigh lindep      = 1e-12
+eigh level_shift = 0
+eigh max_space   = 50
+eigh max_cycle   = 100
+chkfile          = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2253 MB)
+
+
+TDDFT non-equilibrium solvation with eps=1.78
+istate =    0, norms2_elec =  0.3943, norms2_ph =  0.6057
+istate =    1, norms2_elec =  0.6116, norms2_ph =  0.3884
+istate =    2, norms2_elec =  0.9996, norms2_ph =  0.0004
+istate =    3, norms2_elec =  0.9990, norms2_ph =  0.0010
+istate =    4, norms2_elec =  1.0000, norms2_ph =  0.0000
+Excited State energies (eV)
+[3.18563018 3.33413797 3.70590394 4.37804699 4.53015811]
+
+========================================
+ RUNNING MISALIGNMENT ANGLE: 80°
+========================================
+Rotated Cavity Mode Vector : [0.00187, -0.00982, -0.00009]
+
+
+******** <class 'qed.tdscf.rhf.TDASym'> from <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'>-<class 'qed.cavity.rhf.RestrictedJaynesCummings'>-<class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+cQED-TDDFT:          Yang, et. al. J. Chem. Phys. 155, 064107 (2021) https://doi.org/10.1063/5.0057542
+Analytical Gradient: Yang, et. al. J. Chem. Phys. 156, 124104 (2022) https://doi.org/10.1063/5.0082386
+nov              = 26496
+nstates          = 5 singlet
+1 cavity mode in the calculation:
+Cavity    1: freq =  0.1204, mode = ( 0.0019, -0.0098, -0.0001)
+wfnsym           = None
+conv_tol         = 1e-09
+eigh lindep      = 1e-12
+eigh level_shift = 0
+eigh max_space   = 50
+eigh max_cycle   = 100
+chkfile          = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2265 MB)
+
+
+TDDFT non-equilibrium solvation with eps=1.78
+istate =    0, norms2_elec =  0.2995, norms2_ph =  0.7005
+istate =    1, norms2_elec =  0.7065, norms2_ph =  0.2935
+istate =    2, norms2_elec =  1.0000, norms2_ph =  0.0000
+istate =    3, norms2_elec =  0.9986, norms2_ph =  0.0014
+istate =    4, norms2_elec =  1.0000, norms2_ph =  0.0000
+Excited State energies (eV)
+[3.21925832 3.29991767 3.70575249 4.37855773 4.53015585]
+
+========================================
+ RUNNING MISALIGNMENT ANGLE: 90°
+========================================
+Rotated Cavity Mode Vector : [0.00354, -0.00935, -0.00009]
+
+
+******** <class 'qed.tdscf.rhf.TDASym'> from <class 'pyscf.solvent._attach_solvent.ddCOSMOTDA'>-<class 'qed.cavity.rhf.RestrictedJaynesCummings'>-<class 'pyscf.solvent._attach_solvent.ddCOSMODFRKS'> ********
+cQED-TDDFT:          Yang, et. al. J. Chem. Phys. 155, 064107 (2021) https://doi.org/10.1063/5.0057542
+Analytical Gradient: Yang, et. al. J. Chem. Phys. 156, 124104 (2022) https://doi.org/10.1063/5.0082386
+nov              = 26496
+nstates          = 5 singlet
+1 cavity mode in the calculation:
+Cavity    1: freq =  0.1204, mode = ( 0.0035, -0.0094, -0.0001)
+wfnsym           = None
+conv_tol         = 1e-09
+eigh lindep      = 1e-12
+eigh level_shift = 0
+eigh max_space   = 50
+eigh max_cycle   = 100
+chkfile          = /tmp/tmp9fep7phy
+max_memory 4000 MB (current use 2255 MB)
+
+
+TDDFT non-equilibrium solvation with eps=1.78
+istate =    0, norms2_elec =  0.0076, norms2_ph =  0.9924
+istate =    1, norms2_elec =  1.0000, norms2_ph =  0.0000
+istate =    2, norms2_elec =  0.9992, norms2_ph =  0.0008
+istate =    3, norms2_elec =  0.9981, norms2_ph =  0.0019
+istate =    4, norms2_elec =  1.0000, norms2_ph =  0.0000
+Excited State energies (eV)
+[3.24151567 3.27610047 3.70611939 4.37904945 4.53015238]
