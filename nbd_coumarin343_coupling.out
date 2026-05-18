@@ -1,7 +1,0 @@
-
---- Running TD-DFT on Isolated NBD ---
-
-WARN: 2 small eigenvectors of overlap matrix removed because of linear dependency between AOs.
-
-
-converged SCF energy = -675.557230727836
